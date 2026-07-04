@@ -1,0 +1,5 @@
+node_modules/
+dist/
+_agent-loop-output/
+_daemon_*.txt
+_test-state.md
