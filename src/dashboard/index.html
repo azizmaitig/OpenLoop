@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-loop dashboard</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --text: #e0e0e0;
+  --accent: #00ff88;
+  --warning: #ff8800;
+  --error: #ff3333;
+  --card-bg: #1a1a1a;
+  --border: #333;
+  --font: Consolas, 'Courier New', monospace;
+  --text-dim: #888;
+  --text-bright: #fff;
+  --hover-bg: #222;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+  color-scheme: dark;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+header h1 {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+header nav { display: flex; gap: 16px; }
+
+header nav a {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: color .15s, background .15s;
+}
+
+header nav a:hover { color: var(--text-bright); text-decoration: none; background: var(--hover-bg); }
+header nav a.active { color: var(--accent); background: rgba(0,255,136,.1); }
+
+/* Main */
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Cards */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px;
+  margin: 8px 0;
+}
+
+.card h2 {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Key-value rows */
+.kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 0.85rem; }
+.kv dt { color: var(--text-dim); }
+.kv dd { color: var(--text-bright); }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-family: var(--font);
+  border: 1px solid transparent;
+}
+.badge.running, .badge.active { background: rgba(0,255,136,.15); color: var(--accent); border-color: var(--accent); }
+.badge.pending, .badge.queued { background: rgba(255,136,0,.15); color: var(--warning); border-color: var(--warning); }
+.badge.completed, .badge.done { background: rgba(0,200,100,.15); color: #00c864; border-color: #00c864; }
+.badge.failed, .badge.error { background: rgba(255,51,51,.15); color: var(--error); border-color: var(--error); }
+.badge.stopped, .badge.idle { background: rgba(136,136,136,.15); color: var(--text-dim); border-color: var(--text-dim); }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+thead th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-weight: 400;
+  cursor: pointer;
+  user-select: none;
+}
+thead th:hover { color: var(--text-bright); }
+thead th .sort-arrow { margin-left: 4px; color: var(--accent); }
+tbody td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:hover { background: var(--hover-bg); }
+tbody tr.clickable { cursor: pointer; }
+
+/* Buttons */
+button, .btn {
+  font-family: var(--font);
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--card-bg);
+  color: var(--text);
+  transition: background .15s, border-color .15s;
+}
+button:hover, .btn:hover { background: var(--hover-bg); border-color: var(--accent); }
+button.primary { background: rgba(0,255,136,.1); border-color: var(--accent); color: var(--accent); }
+button.primary:hover { background: rgba(0,255,136,.2); }
+button.danger { border-color: var(--error); color: var(--error); }
+button.danger:hover { background: rgba(255,51,51,.15); }
+button.warning { border-color: var(--warning); color: var(--warning); }
+button.warning:hover { background: rgba(255,136,0,.15); }
+button.small { padding: 3px 10px; font-size: 0.75rem; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Form */
+.form-row { display: flex; gap: 8px; margin: 8px 0; }
+input[type=text] {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+input[type=text]:focus { border-color: var(--accent); }
+
+/* Logs */
+.logs {
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 12px;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+/* Pagination */
+.pagination { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.pagination span { font-size: 0.8rem; color: var(--text-dim); }
+
+/* Filter row */
+.filter-row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
+.filter-row label { font-size: 0.8rem; color: var(--text-dim); }
+
+/* Loading / empty states */
+.loading, .empty { color: var(--text-dim); font-size: 0.85rem; padding: 24px; text-align: center; }
+.error-state { color: var(--error); font-size: 0.85rem; padding: 12px; }
+
+/* Status indicator */
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.online { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.status-dot.offline { background: var(--error); box-shadow: 0 0 4px var(--error); }
+.status-dot.warning { background: var(--warning); box-shadow: 0 0 4px var(--warning); }
+
+/* Back link */
+.back-link { display: inline-block; margin-bottom: 16px; font-size: 0.85rem; }
+
+/* WS indicator */
+.ws-indicator {
+  margin-left: auto;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+}
+
+/* Action group */
+.action-group { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+
+/* Duration */
+.duration { color: var(--text-dim); font-size: 0.8rem; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  header { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  main { padding: 12px; }
+  .kv { grid-template-columns: 1fr; gap: 2px; }
+  .kv dd { margin-bottom: 6px; }
+  .form-row { flex-direction: column; }
+  .action-group { flex-direction: column; }
+  table { font-size: 0.75rem; }
+  thead th, tbody td { padding: 6px 8px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>agent-loop</h1>
+  <nav id="nav">
+    <a href="#/">Live</a>
+    <a href="#/history">History</a>
+  </nav>
+  <span class="ws-indicator" id="wsIndicator">
+    <span class="status-dot offline" id="wsDot"></span>
+    <span id="wsLabel">disconnected</span>
+  </span>
+</header>
+
+<main id="main"></main>
+
+<script>
+(function () {
+'use strict';
+
+/* ── Config ───────────────────────────────────────────── */
+var WS_RECONNECT_DELAY = 3000;
+var HISTORY_PAGE_SIZE = 20;
+
+/* ── DOM refs ─────────────────────────────────────────── */
+var $main = document.getElementById('main');
+var $nav = document.getElementById('nav');
+var $wsDot = document.getElementById('wsDot');
+var $wsLabel = document.getElementById('wsLabel');
+
+/* ── State ────────────────────────────────────────────── */
+var ws = null;
+var wsReconnectTimer = null;
+var currentRoute = '';
+var historyPage = 1;
+var historyFilter = '';
+var historySort = { col: 'createdAt', dir: 'desc' };
+
+/* ── Fetch wrapper ────────────────────────────────────── */
+function api(method, url, body) {
+  var opts = { method: method, headers: {} };
+  if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(url, opts).then(function (res) {
+    if (!res.ok) {
+      return res.text().then(function (text) {
+        throw new Error(res.status + ' ' + res.statusText + (text ? ': ' + text : ''));
+      });
+    }
+    return res.json();
+  });
+}
+
+function apiGet(url) { return api('GET', url); }
+function apiPost(url, body) { return api('POST', url, body); }
+
+/* ── Helpers ──────────────────────────────────────────── */
+function esc(str) {
+  var d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function durationStr(ms) {
+  if (ms == null) return '-';
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+  var m = Math.floor(ms / 60000);
+  var s = Math.floor((ms % 60000) / 1000);
+  return m + 'm ' + s + 's';
+}
+
+function badgeHtml(status) {
+  var s = (status || '').toLowerCase();
+  var cls = '';
+  if (s === 'running' || s === 'active') cls = 'running';
+  else if (s === 'pending' || s === 'queued') cls = 'pending';
+  else if (s === 'completed' || s === 'success' || s === 'done') cls = 'completed';
+  else if (s === 'failed' || s === 'error') cls = 'failed';
+  else if (s === 'stopped' || s === 'idle') cls = 'stopped';
+  else cls = 'pending';
+  return '<span class="badge ' + cls + '">' + esc(status || 'unknown') + '</span>';
+}
+
+function timeStr(iso) {
+  if (!iso) return '-';
+  var d = new Date(iso);
+  return d.toLocaleString();
+}
+
+/* ── WebSocket ────────────────────────────────────────── */
+function connectWs() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = function () {
+    $wsDot.className = 'status-dot online';
+    $wsLabel.textContent = 'connected';
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  };
+
+  ws.onclose = function () {
+    $wsDot.className = 'status-dot offline';
+    $wsLabel.textContent = 'reconnecting...';
+    ws = null;
+    wsReconnectTimer = setTimeout(connectWs, WS_RECONNECT_DELAY);
+  };
+
+  ws.onerror = function () {
+    /* onclose will fire after this, reconnect handled there */
+  };
+
+  ws.onmessage = function (evt) {
+    var msg;
+    try { msg = JSON.parse(evt.data); } catch (e) { return; }
+    handleWsMsg(msg);
+  };
+}
+
+function handleWsMsg(msg) {
+  var t = (msg.type || '').toLowerCase();
+  if (t === 'state_change') {
+    if (currentRoute === '#/') renderLive();
+  } else if (t === 'task_completed') {
+    if (currentRoute === '#/history') renderHistory();
+  } else if (t === 'child_status_change') {
+    if (currentRoute === '#/') renderChildren();
+  }
+}
+
+/* ── Router ───────────────────────────────────────────── */
+function navigate(hash) {
+  if (!hash || hash === '#') hash = '#/';
+  currentRoute = hash;
+  updateNav(hash);
+  renderRoute(hash);
+}
+
+function updateNav(hash) {
+  var links = $nav.querySelectorAll('a');
+  var i;
+  for (i = 0; i < links.length; i++) {
+    var href = links[i].getAttribute('href');
+    if (hash === '#/' && href === '#/') { links[i].className = 'active'; }
+    else if (hash === '#/history' && href === '#/history') { links[i].className = 'active'; }
+    else if (hash.indexOf('#/task/') === 0 && href === '#/history') { links[i].className = 'active'; }
+    else { links[i].className = ''; }
+  }
+}
+
+function renderRoute(hash) {
+  if (hash === '#/' || hash === '') {
+    renderLive();
+  } else if (hash === '#/history') {
+    renderHistory();
+  } else if (hash.indexOf('#/task/') === 0) {
+    var id = hash.replace('#/task/', '');
+    renderTask(id);
+  } else {
+    $main.innerHTML = '<div class="card"><p>Page not found. <a href="#/">Go to Live dashboard.</a></p></div>';
+  }
+}
+
+/* ── Page: Live (#/) ──────────────────────────────────── */
+function renderLive() {
+  $main.innerHTML = '<div class="loading">Loading...</div>';
+  Promise.all([
+    apiGet('/state').catch(function (e) { return { error: e.message }; }),
+    apiGet('/loops').catch(function (e) { return { error: e.message }; })
+  ]).then(function (results) {
+    var state = results[0];
+    var loops = results[1];
+    if (state && !state.error) state._loops = Array.isArray(loops) ? loops : [];
+    $main.innerHTML = liveHtml(state, Array.isArray(loops) ? loops : []);
+    bindLiveEvents(state);
+  });
+}
+
+function liveHtml(state, loops) {
+  var h = '';
+
+  /* Daemon status */
+  h += '<section class="card">';
+  h += '<h2>Daemon Status</h2>';
+  h += '<dl class="kv">';
+  if (state && state.error) {
+    h += '<dt>Error</dt><dd class="error-state">' + esc(state.error) + '</dd>';
+  } else if (state) {
+    h += '<dt>Status</dt><dd>' + badgeHtml(state.status || 'unknown') + '</dd>';
+    h += '<dt>Uptime</dt><dd>' + durationStr(state.uptime) + '</dd>';
+    h += '<dt>Version</dt><dd>' + esc(state.version || '-') + '</dd>';
+    h += '<dt>PID</dt><dd>' + esc(state.pid != null ? String(state.pid) : '-') + '</dd>';
+    h += '<dt>Port</dt><dd>' + esc(state.port != null ? String(state.port) : '-') + '</dd>';
+    h += '<dt>Queue</dt><dd>' + esc(state.queueLength != null ? String(state.queueLength) : '-') + '</dd>';
+  } else {
+    h += '<dt>Error</dt><dd class="error-state">Failed to connect</dd>';
+  }
+  h += '</dl>';
+  h += '<div class="action-group">';
+  h += '<button class="danger" id="stopDaemonBtn">Stop Daemon</button>';
+  h += '</div>';
+  h += '</section>';
+
+  /* Current task */
+  h += '<section class="card">';
+  h += '<h2>Current Task</h2>';
+  if (state && state.currentTask) {
+    var t = state.currentTask;
+    h += '<dl class="kv">';
+    h += '<dt>ID</dt><dd>' + esc(t.id || '-') + '</dd>';
+    h += '<dt>Command</dt><dd>' + esc(t.command || '-') + '</dd>';
+    h += '<dt>Status</dt><dd>' + badgeHtml(t.status) + '</dd>';
+    h += '<dt>Started</dt><dd>' + timeStr(t.startedAt || t.startTime) + '</dd>';
+    h += '</dl>';
+  } else {
+    h += '<p class="empty">No task running</p>';
+  }
+  h += '</section>';
+
+  /* Queue */
+  h += '<section class="card">';
+  h += '<h2>Queue</h2>';
+  if (state && state.queue && state.queue.length > 0) {
+    h += '<div style="overflow-x:auto"><table><thead><tr>';
+    h += '<th>ID</th><th>Command</th><th>Status</th>';
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < state.queue.length; i++) {
+      var q = state.queue[i];
+      h += '<tr>';
+      h += '<td>' + esc(q.id || '-') + '</td>';
+      h += '<td>' + esc(q.command || '-') + '</td>';
+      h += '<td>' + badgeHtml(q.status) + '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+  } else {
+    h += '<p class="empty">Queue is empty</p>';
+  }
+  h += '</section>';
+
+  /* Children */
+  h += '<section class="card">';
+  h += '<h2>Children</h2>';
+  if (loops.length === 0) {
+    h += '<p class="empty">No child loops</p>';
+  } else {
+    h += '<div style="overflow-x:auto"><table><thead><tr>';
+    h += '<th>ID</th><th>Name</th><th>Status</th><th>Plan Path</th><th>Actions</th>';
+    h += '</tr></thead><tbody>';
+    for (var j = 0; j < loops.length; j++) {
+      var c = loops[j];
+      var cId = esc(c.id || '');
+      var cStatus = (c.status || '').toLowerCase();
+      var isRunning = cStatus === 'running' || cStatus === 'active';
+      var btnId = 'child-' + cId.replace(/[^a-zA-Z0-9_-]/g, '_') + '-' + (isRunning ? 'stop' : 'start');
+      h += '<tr>';
+      h += '<td>' + esc(c.id || '-') + '</td>';
+      h += '<td>' + esc(c.name || '-') + '</td>';
+      h += '<td>' + badgeHtml(c.status) + '</td>';
+      h += '<td>' + esc(c.planPath || '-') + '</td>';
+      h += '<td>';
+      h += '<button class="small ' + (isRunning ? 'warning' : 'primary') + '" id="' + btnId + '">';
+      h += (isRunning ? 'Stop' : 'Start');
+      h += '</button>';
+      h += '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+  h += '</section>';
+
+  /* Trigger task form */
+  h += '<section class="card">';
+  h += '<h2>Trigger Task</h2>';
+  h += '<div class="form-row">';
+  h += '<input type="text" id="taskCommand" placeholder="command to execute" />';
+  h += '<button class="primary" id="triggerTaskBtn">Submit</button>';
+  h += '</div>';
+  h += '</section>';
+
+  return h;
+}
+
+function bindLiveEvents(state) {
+  /* Stop daemon */
+  var stopBtn = document.getElementById('stopDaemonBtn');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', function () {
+      if (!confirm('Stop the daemon?')) return;
+      stopBtn.disabled = true;
+      stopBtn.textContent = 'Stopping...';
+      apiPost('/stop').then(function () {
+        renderLive();
+      }).catch(function (e) {
+        alert('Failed: ' + e.message);
+        stopBtn.disabled = false;
+        stopBtn.textContent = 'Stop Daemon';
+      });
+    });
+  }
+
+  /* Child start/stop */
+  var childBtns = document.querySelectorAll('[id^="child-"]');
+  var i;
+  for (i = 0; i < childBtns.length; i++) {
+    (function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.id;
+        /* id format: child-<encodedId>-start or child-<encodedId>-stop */
+        var lastDash = id.lastIndexOf('-');
+        var action = id.substring(lastDash + 1);
+        var rawId = id.substring(6, lastDash);
+        btn.disabled = true;
+        var url = '/loops/' + encodeURIComponent(rawId) + '/' + action;
+        apiPost(url).then(function () {
+          renderLive();
+        }).catch(function (e) {
+          alert('Failed: ' + e.message);
+          btn.disabled = false;
+        });
+      });
+    })(childBtns[i]);
+  }
+
+  /* Trigger task */
+  var triggerBtn = document.getElementById('triggerTaskBtn');
+  var taskInput = document.getElementById('taskCommand');
+  if (triggerBtn && taskInput) {
+    triggerBtn.addEventListener('click', function () {
+      var cmd = taskInput.value.trim();
+      if (!cmd) return;
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = 'Submitting...';
+      apiPost('/task', { command: cmd }).then(function () {
+        taskInput.value = '';
+        renderLive();
+      }).catch(function (e) {
+        alert('Failed: ' + e.message);
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = 'Submit';
+      });
+    });
+    taskInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') triggerBtn.click();
+    });
+  }
+}
+
+/* ── Page: History (#/history) ────────────────────────── */
+function renderHistory() {
+  $main.innerHTML = '<div class="loading">Loading...</div>';
+  var url = '/api/history?page=' + historyPage + '&pageSize=' + HISTORY_PAGE_SIZE;
+  apiGet(url).then(function (data) {
+    $main.innerHTML = historyHtml(data);
+    bindHistoryEvents(data);
+  }).catch(function (e) {
+    $main.innerHTML = '<div class="card error-state">Failed to load history: ' + esc(e.message) + '</div>';
+  });
+}
+
+function historyHtml(data) {
+  var tasks = (data && data.tasks) || [];
+  var total = data && data.total != null ? data.total : 0;
+  var totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+  var filtered = tasks;
+
+  /* Apply client-side filter */
+  if (historyFilter) {
+    filtered = [];
+    for (var fi = 0; fi < tasks.length; fi++) {
+      var st = (tasks[fi].status || '').toLowerCase();
+      if (st.indexOf(historyFilter) !== -1) {
+        filtered.push(tasks[fi]);
+      }
+    }
+  }
+
+  /* Sort */
+  var sc = historySort.col;
+  var sd = historySort.dir;
+  filtered.sort(function (a, b) {
+    var va = a[sc];
+    var vb = b[sc];
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return sd === 'asc' ? -1 : 1;
+    if (va > vb) return sd === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  var h = '';
+  h += '<section class="card">';
+  h += '<h2>Task History</h2>';
+
+  /* Filter */
+  h += '<div class="filter-row">';
+  h += '<label for="historyFilter">Filter by status:</label>';
+  h += '<input type="text" id="historyFilter" value="' + esc(historyFilter) + '" placeholder="e.g. failed, running..." />';
+  h += '</div>';
+
+  if (filtered.length === 0) {
+    h += '<p class="empty">No tasks found</p>';
+  } else {
+    h += '<div style="overflow-x:auto"><table><thead><tr>';
+    var cols = [
+      { key: 'id', label: 'ID' },
+      { key: 'command', label: 'Command' },
+      { key: 'status', label: 'Status' },
+      { key: 'createdAt', label: 'Created' },
+      { key: 'completedAt', label: 'Completed' },
+      { key: 'exitCode', label: 'Exit' },
+      { key: 'durationMs', label: 'Duration' }
+    ];
+    for (var ci = 0; ci < cols.length; ci++) {
+      var col = cols[ci];
+      var arrow = '';
+      if (historySort.col === col.key) {
+        arrow = '<span class="sort-arrow">' + (historySort.dir === 'asc' ? '\u25B2' : '\u25BC') + '</span>';
+      }
+      h += '<th data-sort="' + col.key + '">' + col.label + arrow + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    for (var j = 0; j < filtered.length; j++) {
+      var t = filtered[j];
+      h += '<tr class="clickable" data-task-id="' + esc(t.id) + '">';
+      h += '<td>' + esc(t.id || '-') + '</td>';
+      h += '<td>' + esc(t.command || '-') + '</td>';
+      h += '<td>' + badgeHtml(t.status) + '</td>';
+      h += '<td>' + timeStr(t.createdAt) + '</td>';
+      h += '<td>' + timeStr(t.completedAt) + '</td>';
+      h += '<td>' + esc(t.exitCode != null ? String(t.exitCode) : '-') + '</td>';
+      h += '<td>' + durationStr(t.durationMs || t.duration) + '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+
+    /* Pagination */
+    h += '<div class="pagination">';
+    h += '<button class="small" id="historyPrev" ' + (historyPage <= 1 ? 'disabled' : '') + '>Previous</button>';
+    h += '<span>Page ' + historyPage + ' of ' + totalPages + ' (' + total + ' tasks)</span>';
+    h += '<button class="small" id="historyNext" ' + (historyPage >= totalPages ? 'disabled' : '') + '>Next</button>';
+    h += '</div>';
+  }
+
+  h += '</section>';
+  return h;
+}
+
+function bindHistoryEvents(data) {
+  var total = data && data.total != null ? data.total : 0;
+  var totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+
+  /* Filter */
+  var filterInput = document.getElementById('historyFilter');
+  if (filterInput) {
+    filterInput.addEventListener('input', function () {
+      historyFilter = filterInput.value.trim().toLowerCase();
+      historyPage = 1;
+      renderHistory();
+    });
+  }
+
+  /* Pagination */
+  var prevBtn = document.getElementById('historyPrev');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function () {
+      if (historyPage > 1) { historyPage--; renderHistory(); }
+    });
+  }
+  var nextBtn = document.getElementById('historyNext');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function () {
+      if (historyPage < totalPages) { historyPage++; renderHistory(); }
+    });
+  }
+
+  /* Sort headers */
+  var headers = document.querySelectorAll('[data-sort]');
+  var i;
+  for (i = 0; i < headers.length; i++) {
+    (function (th) {
+      th.addEventListener('click', function () {
+        var key = th.getAttribute('data-sort');
+        if (historySort.col === key) {
+          historySort.dir = historySort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          historySort.col = key;
+          historySort.dir = 'asc';
+        }
+        renderHistory();
+      });
+    })(headers[i]);
+  }
+
+  /* Click row to see task detail */
+  var rows = document.querySelectorAll('[data-task-id]');
+  for (var j = 0; j < rows.length; j++) {
+    (function (row) {
+      row.addEventListener('click', function () {
+        var id = row.getAttribute('data-task-id');
+        if (id) navigate('#/task/' + id);
+      });
+    })(rows[j]);
+  }
+}
+
+/* ── Page: Task detail (#/task/:id) ───────────────────── */
+function renderTask(id) {
+  $main.innerHTML = '<div class="loading">Loading...</div>';
+  apiGet('/api/tasks/' + encodeURIComponent(id)).then(function (data) {
+    $main.innerHTML = taskHtml(data, id);
+    bindTaskEvents(data);
+  }).catch(function (e) {
+    $main.innerHTML = '<div class="card error-state">Failed to load task: ' + esc(e.message) + '</div>';
+  });
+}
+
+function taskHtml(data, id) {
+  var task = (data && data.task) || data || {};
+  var phases = (data && data.phases) || [];
+
+  var h = '';
+  h += '<a href="#/history" class="back-link">&larr; Back to history</a>';
+  h += '<section class="card">';
+  h += '<h2>Task ' + esc(task.id || id) + '</h2>';
+  h += '<dl class="kv">';
+  h += '<dt>ID</dt><dd>' + esc(task.id || '-') + '</dd>';
+  h += '<dt>Command</dt><dd>' + esc(task.command || '-') + '</dd>';
+  h += '<dt>Status</dt><dd>' + badgeHtml(task.status) + '</dd>';
+  h += '<dt>Exit Code</dt><dd>' + esc(task.exitCode != null ? String(task.exitCode) : '-') + '</dd>';
+  h += '<dt>Created</dt><dd>' + timeStr(task.createdAt) + '</dd>';
+  h += '<dt>Started</dt><dd>' + timeStr(task.startedAt || task.startTime) + '</dd>';
+  h += '<dt>Completed</dt><dd>' + timeStr(task.completedAt) + '</dd>';
+  h += '<dt>Duration</dt><dd>' + durationStr(task.durationMs || task.duration) + '</dd>';
+  h += '</dl>';
+  h += '<div class="action-group">';
+  h += '<button class="primary" id="rerunTaskBtn">Re-run</button>';
+  h += '</div>';
+  h += '</section>';
+
+  /* Stdout */
+  if (task.stdout) {
+    h += '<section class="card">';
+    h += '<h2>stdout</h2>';
+    h += '<pre class="logs">' + esc(task.stdout) + '</pre>';
+    h += '</section>';
+  }
+
+  /* Stderr */
+  if (task.stderr) {
+    h += '<section class="card">';
+    h += '<h2>stderr</h2>';
+    h += '<pre class="logs">' + esc(task.stderr) + '</pre>';
+    h += '</section>';
+  }
+
+  /* Phases */
+  if (phases.length > 0) {
+    h += '<section class="card">';
+    h += '<h2>Phases</h2>';
+    h += '<div style="overflow-x:auto"><table><thead><tr>';
+    h += '<th>Name</th><th>Status</th><th>Duration</th><th>Output</th>';
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < phases.length; i++) {
+      var p = phases[i];
+      h += '<tr>';
+      h += '<td>' + esc(p.name || '-') + '</td>';
+      h += '<td>' + badgeHtml(p.status) + '</td>';
+      h += '<td>' + durationStr(p.durationMs || p.duration) + '</td>';
+      h += '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((p.output || '').slice(0, 200)) + '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '</section>';
+  }
+
+  return h;
+}
+
+function bindTaskEvents(data) {
+  var rerunBtn = document.getElementById('rerunTaskBtn');
+  if (rerunBtn) {
+    rerunBtn.addEventListener('click', function () {
+      var task = (data && data.task) || data || {};
+      var cmd = task.command;
+      if (!cmd) return;
+      rerunBtn.disabled = true;
+      rerunBtn.textContent = 'Re-running...';
+      apiPost('/task', { command: cmd }).then(function (r) {
+        navigate('#/task/' + r.id);
+      }).catch(function (e) {
+        alert('Failed: ' + e.message);
+        rerunBtn.disabled = false;
+        rerunBtn.textContent = 'Re-run';
+      });
+    });
+  }
+}
+
+/* ── Init ─────────────────────────────────────────────── */
+window.addEventListener('hashchange', function () {
+  navigate(location.hash || '#/');
+});
+
+/* Initial load */
+if (!location.hash || location.hash === '#') {
+  location.hash = '#/';
+} else {
+  navigate(location.hash);
+}
+
+/* Start WebSocket */
+connectWs();
+
+})();
+</script>
+</body>
+</html>
