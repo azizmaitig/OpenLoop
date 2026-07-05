@@ -1,0 +1,23 @@
+planName: test-fixture
+tasks:
+  - id: setup
+    command: echo 'setup complete'
+    timeoutMs: 5000
+    status: pass
+    durationMs: 28
+    completedAt: 2026-07-04T15:41:32.475Z
+  - id: build
+    command: echo 'build complete'
+    llm:
+      mcpServer: filesystem
+      tool: write
+      prompt: write build artifact
+    status: pass
+    durationMs: 27
+    completedAt: 2026-07-04T15:41:32.475Z
+  - id: verify
+    command: echo 'verify complete'
+    timeoutMs: 10000
+    status: pass
+    durationMs: 27
+    completedAt: 2026-07-04T15:41:32.475Z
