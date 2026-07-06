@@ -1,0 +1,23 @@
+planName: daily-triage
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 30
+    completedAt: 2026-07-06T15:50:03.048Z
+  - id: llm-triage
+    command: type STATE.md
+    timeoutMs: 60000
+    llm:
+      provider: openai
+      prompt: You are an engineering triage agent. Read the loop STATE.md content in stdout and produce a triage report covering: 1) High-Priority Items — things needing action today with why and suggested next action, 2) Watch Items — things to monitor but not act on yet, 3) Recent Noise — items looked at and discarded. Return JSON with passed (boolean), reason (full triage report as markdown), confidence (0-1).
+    status: pass
+    durationMs: 24
+    completedAt: 2026-07-06T15:50:03.048Z
+  - id: write-report
+    command: "echo {\"run_id\": \"%DATE% %TIME%\", \"pattern\": \"daily-triage\", \"outcome\": \"completed\", \"timestamp\": \"%DATE% %TIME%\", \"duration_ms\": 0} >> loop-run-log.md"
+    timeoutMs: 5000
+    status: pass
+    durationMs: 23
+    completedAt: 2026-07-06T15:50:03.048Z
