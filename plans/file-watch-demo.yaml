@@ -1,0 +1,10 @@
+planName: file-watch-demo
+tasks:
+  - id: log-file-received
+    command: echo "received: $(date)" >> loop-run-log.md
+    timeoutMs: 15000
+  - id: llm-summarize
+    timeoutMs: 30000
+    llm:
+      provider: openai
+      prompt: "summarize what the file-watch-demo plan does in 10 words"

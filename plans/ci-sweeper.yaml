@@ -1,0 +1,33 @@
+planName: ci-sweeper
+tasks:
+  - id: discover
+    command: >-
+      echo "=== CI Failures ===" && (gh run list --branch main --limit 10 --json
+      conclusion,databaseId,displayTitle,headBranch,createdAt 2>nul || echo "gh not available — CI check skipped") &&
+      echo "=== Git Status ===" && git log --oneline -5 --since="24 hours ago" 2>nul
+    timeoutMs: 30000
+    status: fail
+    durationMs: 395
+    completedAt: '2026-07-07T04:28:12.821Z'
+  - id: llm-triage
+    command: echo "CI data from discover task above"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a CI sweeper triage agent. Analyze the CI failure data and git log in the task stdout. Classify each
+        failing job as one of: FLAKE (intermittent, seen before, no code change needed), REGRESSION (new failure on a
+        code change), INFRA (runner OOM, network, secrets, env). Return JSON with passed (boolean), reason (markdown
+        report with: failures found, per-failure classification, whether actionable, and suggested next action for
+        each), confidence (0-1). If CI is all green, set passed=true, reason="CI green — no action", confidence=1.
+    status: pass
+    durationMs: 22
+    completedAt: '2026-07-07T04:28:12.821Z'
+  - id: report
+    command: >-
+      echo {"run_id": "%DATE% %TIME%", "pattern": "ci-sweeper", "outcome": "completed", "timestamp": "%DATE% %TIME%",
+      "duration_ms": 0} >> loop-run-log.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 22
+    completedAt: '2026-07-07T04:28:12.821Z'

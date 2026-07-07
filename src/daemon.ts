@@ -1,13 +1,15 @@
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { ServerWebSocket } from 'bun';
-import type { DaemonStatus, Task } from './types.js';
+import type { DaemonStatus } from './types.js';
 import { TaskQueue } from './task-queue.js';
-import { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js';
-import { updateStateMd } from './state.js';
-import type { StateMdFrontmatter } from './state.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { LoopOrchestrator } from './orchestrator.js';
+import { processQueue } from './task-processor.js';
+import type { TaskContext } from './task-processor.js';
+import { readPauseState } from './state.js';
+import { createFetchHandler } from './routes.js';
+import type { DaemonAPI } from './daemon-api.js';
 
 export class Daemon {
   private _status: DaemonStatus;
@@ -25,11 +27,16 @@ export class Daemon {
   readonly orchestrator: LoopOrchestrator;
   readonly baseDir: string;
 
+  private _planPath: string | undefined;
+  private _cronExpr: string | undefined;
+
   constructor(
     private _port: number = 3000,
     baseDir?: string,
-    opts?: { cron?: string; watchDir?: string; loopsConfig?: string },
+    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string },
   ) {
+    this._planPath = opts?.planPath;
+    this._cronExpr = opts?.cron;
     this._loopsConfigPath = opts?.loopsConfig;
     this.orchestrator = new LoopOrchestrator(this.taskQueue, this.triggerManager);
     this.orchestrator.onTaskEnqueued = () => this.maybeProcessQueue();
@@ -88,8 +95,10 @@ export class Daemon {
     };
 
     // Cache dashboard HTML
+    const dashboardPath = resolve(import.meta.dirname, 'dashboard', 'index.html');
+    console.log('[dashboard] resolving:', dashboardPath);
     try {
-      this.dashboardHtml = readFileSync(resolve(import.meta.dirname, 'dashboard', 'index.html'), 'utf-8');
+      this.dashboardHtml = readFileSync(dashboardPath, 'utf-8');
     } catch {
       console.error('[daemon] dashboard/index.html not found — /dashboard route will return 404');
     }
@@ -110,177 +119,7 @@ export class Daemon {
         },
         message: () => {},
       },
-      fetch: async (req) => {
-        const url = new URL(req.url);
-
-        // GET /health
-        if (url.pathname === '/health' && req.method === 'GET') {
-          return Response.json({
-            status: 'ok',
-            uptime: Math.floor((Date.now() - this.startedAt) / 1000),
-          });
-        }
-
-        // GET /state
-        if (url.pathname === '/state' && req.method === 'GET') {
-          return Response.json(this.getState());
-        }
-
-        // GET /api/version
-        if (url.pathname === '/api/version' && req.method === 'GET') {
-          return Response.json({ version: '0.6.0' });
-        }
-
-        // POST /stop
-        if (url.pathname === '/stop' && req.method === 'POST') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          setTimeout(() => this.stop(), 50);
-          return Response.json({ status: 'ok' });
-        }
-
-        // POST /task — enqueue a new task
-        if (url.pathname === '/task' && req.method === 'POST') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          try {
-            const body = await req.json();
-            if (!body || typeof body.command !== 'string' || body.command.trim().length === 0) {
-              return Response.json({ error: 'command is required' }, { status: 400 });
-            }
-            if (!this.isSafeCommand(body.command)) {
-              return Response.json({ error: 'command rejected: unsafe shell metacharacters' }, { status: 400 });
-            }
-const task = this.taskQueue.enqueue(body.command, {
-  timeoutMs: typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined,
-  llm: body.llm ?? undefined,
-});
-// Defer processing so the 201 response is sent before the task moves to 'running'
-setTimeout(() => this.maybeProcessQueue(), 0);
-return Response.json({ id: task.id, status: task.status }, { status: 201 });
-          } catch (err) {
-            return Response.json({ error: 'invalid JSON body' }, { status: 400 });
-          }
-        }
-
-        // GET /api/history — paginated task history
-        if (url.pathname === '/api/history' && req.method === 'GET') {
-          const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
-          const pageSize = Math.max(1, Math.min(100, parseInt(url.searchParams.get('pageSize') ?? '20', 10) || 20));
-          const result = await listTaskHistory(this.baseDir, page, pageSize);
-          return Response.json(result);
-        }
-
-        // GET /api/tasks/:id — single task detail
-        const tasksMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
-        if (tasksMatch && req.method === 'GET') {
-          const taskId = tasksMatch[1];
-          const entry = await readTaskHistory(this.baseDir, taskId);
-          if (!entry) {
-            return Response.json({ error: 'task not found' }, { status: 404 });
-          }
-          return Response.json(entry);
-        }
-
-        // POST /loops/:id/start — start a child loop
-        const loopsStartMatch = url.pathname.match(/^\/loops\/([^/]+)\/start$/);
-        if (loopsStartMatch && req.method === 'POST') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          const started = await this.orchestrator.startChild(loopsStartMatch[1]);
-          if (started === 'not_found') {
-            return Response.json({ error: 'child loop not found' }, { status: 404 });
-          }
-          if (started === 'already_running') {
-            return Response.json({ error: 'child loop already running' }, { status: 409 });
-          }
-          return Response.json({ status: 'ok' });
-        }
-
-        // POST /loops/:id/stop — stop a child loop
-        const loopsStopMatch = url.pathname.match(/^\/loops\/([^/]+)\/stop$/);
-        if (loopsStopMatch && req.method === 'POST') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          const stopped = await this.orchestrator.stopChild(loopsStopMatch[1]);
-          if (stopped === 'not_found') {
-            return Response.json({ error: 'child loop not found' }, { status: 404 });
-          }
-          if (stopped === 'not_running') {
-            return Response.json({ error: 'child loop is not running' }, { status: 409 });
-          }
-          return Response.json({ status: 'ok' });
-        }
-
-        // GET /loops — list all child loops
-        if (url.pathname === '/loops' && req.method === 'GET') {
-          return Response.json(this.orchestrator.listChildren());
-        }
-
-        // POST /loops — create a new child loop
-        if (url.pathname === '/loops' && req.method === 'POST') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          try {
-            const body = await req.json();
-            if (!body || typeof body.name !== 'string' || typeof body.planPath !== 'string') {
-              return Response.json({ error: 'name and planPath are required' }, { status: 400 });
-            }
-            const id = this.orchestrator.addChild(body);
-            return Response.json({ id, status: 'created' }, { status: 201 });
-          } catch {
-            return Response.json({ error: 'invalid JSON body' }, { status: 400 });
-          }
-        }
-
-        // DELETE /loops/:id — remove a child loop
-        const loopsDeleteMatch = url.pathname.match(/^\/loops\/([^/]+)$/);
-        if (loopsDeleteMatch && req.method === 'DELETE') {
-          if (!this.isAuthorized(req)) {
-            return Response.json({ error: 'unauthorized' }, { status: 401 });
-          }
-          const removed = this.orchestrator.removeChild(loopsDeleteMatch[1]);
-          if (!removed) {
-            return Response.json({ error: 'child loop not found' }, { status: 404 });
-          }
-          return Response.json({ status: 'ok' });
-        }
-
-        // GET /loops/:id — single child loop state
-        if (loopsDeleteMatch && req.method === 'GET') {
-          const child = this.orchestrator.getChildState(loopsDeleteMatch[1]);
-          if (!child) {
-            return Response.json({ error: 'child loop not found' }, { status: 404 });
-          }
-          return Response.json(child);
-        }
-
-        // WebSocket upgrade
-        if (url.pathname === '/ws') {
-          const upgraded = this.server!.upgrade(req, { data: {} });
-          if (!upgraded) {
-            return new Response('WebSocket upgrade failed', { status: 400 });
-          }
-          return;
-        }
-
-        // GET /dashboard — serve the SPA
-        if (url.pathname === '/dashboard' && req.method === 'GET') {
-          if (!this.dashboardHtml) {
-            return new Response('Dashboard not available', { status: 404 });
-          }
-          return new Response(this.dashboardHtml, {
-            headers: { 'Content-Type': 'text/html; charset=utf-8' },
-          });
-        }
-
-        return new Response('Not found', { status: 404 });
-      },
+      fetch: createFetchHandler(this),
     });
 
     this._port = this.server!.port!;
@@ -297,6 +136,20 @@ return Response.json({ id: task.id, status: task.status }, { status: 201 });
     const loopsConfig = this._loopsConfigPath;
     if (loopsConfig) {
       await this.orchestrator.loadFromConfig(loopsConfig);
+    }
+
+    // ponytail: inline child loop when --plan + --cron given (no loops.yaml needed)
+    if (this._planPath && this._cronExpr) {
+      const id = this.orchestrator.addChild({
+        name: `plan-${this._cronExpr.replace(/\s+/g, '-')}`,
+        planPath: this._planPath,
+        triggers: [{ type: 'cron', expression: this._cronExpr }],
+        enabled: true,
+      });
+      await this.orchestrator.startChild(id);
+      console.log(`[daemon] Registered plan "${this._planPath}" on cron "${this._cronExpr}"`);
+    } else if (this._planPath) {
+      console.warn(`[daemon] --plan provided without --cron — plan will not auto-run. Add --cron to schedule it.`);
     }
 
     // Broadcast state every 2s
@@ -347,83 +200,28 @@ return Response.json({ id: task.id, status: task.status }, { status: 201 });
     return auth === `Bearer ${apiKey}`;
   }
 
-  private isSafeCommand(cmd: string): boolean {
-    return !/[;&|`$\n\r]/.test(cmd);
-  }
-
-  private async executeTask(task: Task): Promise<void> {
-    if (!this.isSafeCommand(task.command)) {
-      this.taskQueue.fail(task.id, 'Command rejected: unsafe shell metacharacters detected');
-      this.broadcast('task_completed', this.taskQueue.get(task.id));
-      return;
-    }
-
-    const timeoutMs = task.timeoutMs ?? 60000;
-    const startTime = Date.now();
-
-    try {
-      const proc = Bun.spawn(['cmd.exe', '/c', task.command], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      const timeout = AbortSignal.timeout(timeoutMs);
-      const [stdout, stderr] = await Promise.all([
-        Bun.readableStreamToText(proc.stdout),
-        Bun.readableStreamToText(proc.stderr),
-      ]);
-
-      const exitCode = await proc.exited;
-
-      this.taskQueue.complete(task.id, {
-        exitCode,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        durationMs: Date.now() - startTime,
-      });
-      this.broadcast('task_completed', this.taskQueue.get(task.id));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.taskQueue.fail(task.id, msg);
-      this.broadcast('task_completed', this.taskQueue.get(task.id));
-    }
+  private async isPaused(): Promise<boolean> {
+    return readPauseState(resolve(this.baseDir, 'STATE.md'));
   }
 
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     this.processing = true;
-
-    while (this._status.status === 'running') {
-      const task = this.taskQueue.dequeue();
-      if (!task) break;
-
-      await this.executeTask(task);
-
-      // Save history (best-effort, non-blocking)
-      const completedTask = this.taskQueue.get(task.id);
-      if (completedTask) {
-        saveTaskHistory(this.baseDir, completedTask).catch(() => {});
-
-        // Auto-update STATE.md frontmatter after each task
-        const stateMdPath = resolve(this.baseDir, 'STATE.md');
-        const taskCount = this.taskQueue.history.length;
-        const fm: StateMdFrontmatter = {
-          last_run: new Date().toISOString(),
-          current_state: this._status.status,
-          iteration: taskCount,
-          active_children: this.orchestrator.listChildren().filter(c => c.status === 'running').length,
-          high_priority: 0,
-          watch_items: 0,
-          task_count: taskCount,
-        };
-        updateStateMd(stateMdPath, fm).catch(() => {});
-      }
+    try {
+      const ctx: TaskContext = {
+        taskQueue: this.taskQueue,
+        baseDir: this.baseDir,
+        getState: () => this._status,
+        isPaused: () => this.isPaused(),
+        broadcast: (type, data) => this.broadcast(type, data),
+      };
+      await processQueue(ctx);
+    } finally {
+      this.processing = false;
     }
-
-    this.processing = false;
   }
 
   private maybeProcessQueue(): void {
-    // Fire-and-forget: start processing if not already running
     this.processQueue().catch(() => {});
   }
 }

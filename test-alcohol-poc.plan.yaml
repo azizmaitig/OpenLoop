@@ -5,16 +5,16 @@ tasks:
     timeoutMs: 15000
     status: pass
     durationMs: 22
-    completedAt: 2026-07-04T16:02:17.584Z
+    completedAt: 2026-07-05T16:48:37.253Z
   - id: analyze
     command: type ..\\alcohol-poc\\app.py
     timeoutMs: 30000
     status: pass
-    durationMs: 21
-    completedAt: 2026-07-04T16:02:17.584Z
+    durationMs: 414
+    completedAt: 2026-07-05T16:48:37.253Z
   - id: report
     command: echo report done
     timeoutMs: 15000
     status: pass
     durationMs: 24
-    completedAt: 2026-07-04T16:02:17.584Z
+    completedAt: 2026-07-05T16:48:37.253Z

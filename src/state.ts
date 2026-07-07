@@ -1,87 +1,34 @@
 import type { LoopState, LoopConfig, PhaseResult, DaemonStatus } from './types.js';
 import { existsSync, readFileSync } from 'node:fs';
+import { parseFrontmatter, dumpFrontmatter } from './yaml.js';
 
 const STATE_VERSION = 1;
 
 function serializeYamlFrontmatter(state: LoopState): string {
-  const phaseResultsJson = JSON.stringify(state.phaseResults);
-  const errorsJson = JSON.stringify(state.errors);
-
-  const lines: string[] = [
-    '---',
-    `version: ${STATE_VERSION}`,
-    `currentState: ${state.currentState}`,
-    `iteration: ${state.iteration}`,
-    `startTime: "${state.startTime}"`,
-    `phaseResults: ${phaseResultsJson}`,
-    `errors: ${errorsJson}`,
-    '---',
-  ];
-  return lines.join('\n');
+  return dumpFrontmatter({
+    version: STATE_VERSION,
+    currentState: state.currentState,
+    iteration: state.iteration,
+    startTime: state.startTime,
+    phaseResults: state.phaseResults,
+    errors: state.errors,
+  });
 }
 
 function parseYamlFrontmatter(content: string): LoopState | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return null;
-
-  const yaml = match[1];
-  const lines = yaml.split('\n');
-  const parsed: Record<string, unknown> = {};
-
-  for (const line of lines) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const valueStr = line.slice(colonIdx + 1).trim();
-    if (!key) continue;
-
-    // Complex objects — JSON parse
-    if (valueStr === '{}' || valueStr === '[]' || valueStr.startsWith('{') || valueStr.startsWith('[')) {
-      try {
-        parsed[key] = JSON.parse(valueStr);
-      } catch {
-        parsed[key] = valueStr;
-      }
-      continue;
-    }
-
-    // Quoted string
-    if ((valueStr.startsWith('"') && valueStr.endsWith('"')) ||
-        (valueStr.startsWith("'") && valueStr.endsWith("'"))) {
-      parsed[key] = valueStr.slice(1, -1);
-      continue;
-    }
-
-    // Number
-    if (/^-?\d+(\.\d+)?$/.test(valueStr)) {
-      parsed[key] = Number(valueStr);
-      continue;
-    }
-
-    // Boolean
-    if (valueStr === 'true') { parsed[key] = true; continue; }
-    if (valueStr === 'false') { parsed[key] = false; continue; }
-
-    // Plain string fallback
-    parsed[key] = valueStr;
-  }
+  const parsed = parseFrontmatter<Record<string, unknown>>(content);
+  if (!parsed) return null;
 
   const currentState = parsed.currentState as LoopState['currentState'];
   const iteration = parsed.iteration as number;
-  const phaseResults = parsed.phaseResults as Record<string, PhaseResult>;
-  const startTime = parsed.startTime as string;
-  const errors = parsed.errors as string[];
-
-  if (!currentState || typeof iteration !== 'number') {
-    return null;
-  }
+  if (!currentState || typeof iteration !== 'number') return null;
 
   return {
     currentState,
     iteration,
-    phaseResults: phaseResults ?? {},
-    startTime: startTime ?? '',
-    errors: errors ?? [],
+    phaseResults: (parsed.phaseResults ?? {}) as Record<string, PhaseResult>,
+    startTime: (parsed.startTime as string) ?? '',
+    errors: (parsed.errors ?? []) as string[],
   };
 }
 
@@ -147,9 +94,6 @@ export function updatePhaseResult(
   };
 }
 
-/**
- * Frontmatter fields for the human-facing STATE.md.
- */
 export interface StateMdFrontmatter {
   last_run: string;
   active_children: number;
@@ -158,16 +102,9 @@ export interface StateMdFrontmatter {
   task_count: number;
   current_state: string;
   iteration: number;
+  paused?: boolean;
 }
 
-/**
- * Update the project-level STATE.md with new frontmatter.
- * Preserves any human-written body text after the frontmatter.
- * Creates the file if it doesn't exist.
- *
- * @param path - Full path to STATE.md
- * @param fm   - Frontmatter data to write
- */
 export async function updateStateMd(
   path: string,
   fm: StateMdFrontmatter,
@@ -179,21 +116,19 @@ export async function updateStateMd(
     body = match ? match[1] : content;
   }
 
-  const frontmatter = [
-    '---',
-    `last_run: "${fm.last_run}"`,
-    `current_state: ${fm.current_state}`,
-    `iteration: ${fm.iteration}`,
-    `active_children: ${fm.active_children}`,
-    `high_priority: ${fm.high_priority}`,
-    `watch_items: ${fm.watch_items}`,
-    `task_count: ${fm.task_count}`,
-    '---',
-  ].join('\n');
-
+  const frontmatter = dumpFrontmatter(fm as unknown as Record<string, unknown>);
   const output = body.trim()
     ? `${frontmatter}\n\n${body}`
     : frontmatter + '\n';
 
   await Bun.write(path, output);
+}
+
+export async function readPauseState(path: string): Promise<boolean> {
+  try {
+    const fm = parseFrontmatter<{ paused?: boolean }>(await Bun.file(path).text());
+    return fm?.paused === true;
+  } catch {
+    return false;
+  }
 }

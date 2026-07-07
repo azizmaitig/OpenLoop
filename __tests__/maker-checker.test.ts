@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { createMakerCheckerPlugin } from "../src/maker-checker-plugin.js";
 import type { PhaseDef, PhaseResult, LoopState } from "../src/types.js";
+
+// NOTE: do NOT use mock.module here — it is global across ALL test files in
+// bun and would poison llm.test.ts.  Instead mock globalThis.fetch to
+// control what callLLM returns.
+
+// Control variable — set before tests that need a custom LLM response.
+let llmResponseJson = '{"passed": true, "reason": "all good"}';
+
+const originalFetch = globalThis.fetch;
 
 function makePhase(name: string, overrides?: Partial<PhaseDef>): PhaseDef {
   return {
@@ -137,5 +146,103 @@ describe("createMakerCheckerPlugin", () => {
     expect(typeof plugin.onError).toBe("function");
     expect(typeof plugin.beforeLoop).toBe("function");
     expect(typeof plugin.afterLoop).toBe("function");
+  });
+});
+
+describe("createMakerCheckerPlugin - AI verification path", () => {
+  // Set env vars so envLlmConfig() returns a valid config
+  const savedProvider = Bun.env.LLM_PROVIDER;
+  const savedKey = Bun.env.LLM_API_KEY;
+  const savedModel = Bun.env.LLM_MODEL;
+
+  beforeAll(() => {
+    Bun.env.LLM_PROVIDER = "openai";
+    Bun.env.LLM_API_KEY = "sk-test";
+    Bun.env.LLM_MODEL = "gpt-4o";
+  });
+
+  afterAll(() => {
+    Bun.env.LLM_PROVIDER = savedProvider;
+    if (savedKey === undefined) delete Bun.env.LLM_API_KEY;
+    else Bun.env.LLM_API_KEY = savedKey;
+    if (savedModel === undefined) delete Bun.env.LLM_MODEL;
+    else Bun.env.LLM_MODEL = savedModel;
+  });
+
+  test("maker passes -> AI approves -> checker judgment.passed is true", async () => {
+    llmResponseJson = '{"passed": true, "reason": "looks good"}';
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: llmResponseJson } }],
+        }),
+        { status: 200 },
+      );
+
+    try {
+      const plugin = createMakerCheckerPlugin({ enabled: true });
+      const state = makeState();
+
+      await plugin.onPhaseEnd!(makePhase("maker"), makeResult({ stdout: "output ok" }), state);
+
+      const checker = state.phaseResults["checker"];
+      expect(checker).toBeDefined();
+      expect(checker.judgment).toBeDefined();
+      expect(checker.judgment!.passed).toBe(true);
+      expect(checker.judgment!.reason).toBe("looks good");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("maker passes -> AI rejects -> checker judgment.passed is false", async () => {
+    llmResponseJson = '{"passed": false, "reason": "output incorrect"}';
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: llmResponseJson } }],
+        }),
+        { status: 200 },
+      );
+
+    try {
+      const plugin = createMakerCheckerPlugin({ enabled: true });
+      const state = makeState();
+
+      await plugin.onPhaseEnd!(makePhase("maker"), makeResult({ stdout: "bad output" }), state);
+
+      const checker = state.phaseResults["checker"];
+      expect(checker).toBeDefined();
+      expect(checker.judgment).toBeDefined();
+      expect(checker.judgment!.passed).toBe(false);
+      expect(checker.judgment!.reason).toBe("output incorrect");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("maker passes -> AI throws -> falls back to judgment undefined", async () => {
+    // Return invalid JSON from the LLM so JSON.parse inside runAiVerification
+    // throws, which is caught and returns undefined.
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "not valid json" } }],
+        }),
+        { status: 200 },
+      );
+
+    try {
+      const plugin = createMakerCheckerPlugin({ enabled: true });
+      const state = makeState();
+
+      await plugin.onPhaseEnd!(makePhase("maker"), makeResult({ stdout: "bad output" }), state);
+
+      const checker = state.phaseResults["checker"];
+      expect(checker).toBeDefined();
+      expect(checker.judgment).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

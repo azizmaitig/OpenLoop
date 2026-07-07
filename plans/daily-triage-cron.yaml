@@ -1,0 +1,7 @@
+loops:
+  - name: daily-triage
+    planPath: plans/daily-triage.yaml
+    enabled: true
+    triggers:
+      - type: cron
+        schedule: "0 9 * * *"

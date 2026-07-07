@@ -13,17 +13,17 @@ import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 
 import { StateMachine } from './src/state-machine.js';
-import { writeState, createInitialState, updatePhaseResult } from './src/state.js';
-import { executeWithTimeout } from './src/safety.js';
-import type { LoopConfig, PhaseDef, PhaseResult, LoopState, LoopResult, Judgment } from './src/types.js';
+import { writeState, createInitialState } from './src/state.js';
+import type { LoopConfig, PhaseDef, LoopState, LoopResult } from './src/types.js';
 import { evaluatePhase } from './src/evaluate.js';
-import { loadPlugins, executeHooks, executeBeforeLoop, executeAfterLoop } from './src/plugins.js';
-import type { Plugin, HookContext } from './src/plugins.js';
+import { loadPlugins, executeBeforeLoop, executeAfterLoop } from './src/plugins.js';
+import type { Plugin } from './src/plugins.js';
 import { startApiServer } from './src/api.js';
-import type { ApiServer, ApiHandlers } from './src/api.js';
+import type { ApiHandlers } from './src/api.js';
 import { Daemon } from './src/daemon.js';
 import { initProject } from './src/init.js';
-import { onPhaseFailed, onLoopComplete, logPhaseContext } from './src/memory-hooks.js';
+import { onPhaseFailed, onLoopComplete } from './src/memory-hooks.js';
+import { executePhaseGroup } from './src/execute-phases.js';
 
 // ── Built-in tasks ──────────────────────────────────────────────────────────
 
@@ -223,50 +223,6 @@ function resolvePhases(
   return { ...task, taskName: taskName ?? task.taskName, phases };
 }
 
-// ── Shell command executor ──────────────────────────────────────────────────
-
-async function executeShellCommand(
-  command: string,
-  timeoutMs: number,
-): Promise<PhaseResult> {
-  const startTime = Date.now();
-
-  try {
-    return await executeWithTimeout(async (signal) => {
-      // Windows: shell commands need cmd.exe /c
-      const proc = Bun.spawn(['cmd.exe', '/c', command], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        signal,
-      });
-
-      const [stdout, stderr] = await Promise.all([
-        Bun.readableStreamToText(proc.stdout),
-        Bun.readableStreamToText(proc.stderr),
-      ]);
-
-      const exitCode = await proc.exited;
-
-      return {
-        status: exitCode === 0 ? 'pass' : 'fail',
-        exitCode,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        durationMs: Date.now() - startTime,
-        evidencePath: '',
-      };
-    }, timeoutMs, command);
-  } catch (err) {
-    return {
-      status: 'error',
-      exitCode: -1,
-      stdout: '',
-      stderr: err instanceof Error ? err.message : String(err),
-      durationMs: Date.now() - startTime,
-      evidencePath: '',
-    };
-  }
-}
-
 // ── State writing helpers ───────────────────────────────────────────────────
 
 async function writeJsonState(filePath: string, state: LoopState): Promise<void> {
@@ -326,6 +282,10 @@ async function resolveTransition(
     // Need at least one phase with llm config to make the transition call
     const llmPhase = config.phases.find(p => p.llm);
     if (!llmPhase?.llm) {
+      return resolveHardcoded(allPassed, iteration, config.maxIterations);
+    }
+    // Transition controller requires MCP-shaped config
+    if (!('mcpServer' in llmPhase.llm)) {
       return resolveHardcoded(allPassed, iteration, config.maxIterations);
     }
 
@@ -417,58 +377,14 @@ async function runLoop(config: LoopConfig): Promise<number> {
     await writeBothStates(state);
 
     // ── Execute each phase ─────────────────────────────────────────────────
-    allPassed = true;
-    for (const phase of config.phases) {
-      process.stdout.write(`[${state.iteration}/${config.maxIterations}] ${phase.name}... `);
-
-      // Plugin hooks: onPhaseStart (wrapped in try/catch by executeHooks)
-      const prePluginResults = await executeHooks('onPhaseStart', { phase, state }, plugins);
-      let pluginResults: Record<string, any> = { ...prePluginResults };
-
-      logPhaseContext(phase, config);
-
-      const result = await executeShellCommand(phase.command, phase.timeoutMs);
-
-      // Plugin hooks: onPhaseEnd or onError
-      if (result.status === 'error') {
-        const errResults = await executeHooks('onError', { phase, state, error: new Error(result.stderr) }, plugins);
-        Object.assign(pluginResults, errResults);
-      } else {
-        const postPluginResults = await executeHooks('onPhaseEnd', { phase, result, state }, plugins);
-        Object.assign(pluginResults, postPluginResults);
-      }
-      result.pluginResults = pluginResults;
-
-      // Semantic evaluation (wrapped — evaluation failure should not crash the loop)
-      try {
-        const judgment = await evaluatePhase(phase, result);
-        result.judgment = judgment;
-      } catch {
-        // Evaluation failure is non-fatal
-      }
-
-      state = updatePhaseResult(state, phase.name, result);
-      sigintState = state;
-
-      if (result.status === 'pass') {
-        console.log(`PASS (${result.durationMs}ms)`);
-      } else if (result.status === 'fail') {
-        allPassed = false;
-        console.log(`FAIL (${result.durationMs}ms)`);
-        if (result.stderr) console.error(`  stderr: ${result.stderr}`);
-        if (result.stdout) console.error(`  stdout: ${result.stdout}`);
-      } else {
-        allPassed = false;
-        console.log(`ERROR (${result.durationMs}ms)`);
-        if (result.stderr) console.error(`  error: ${result.stderr}`);
-      }
-
-      if (result.status !== 'pass') {
-        onPhaseFailed(phase, result, config);
-      }
-
-      await writeBothStates(state);
-    }
+    const phaseResult = await executePhaseGroup(
+      { config, plugins, writeState: writeBothStates, onPhaseFailed: (p, r) => onPhaseFailed(p, r, config) },
+      state,
+      state.iteration,
+    );
+    allPassed = phaseResult.allPassed;
+    state = phaseResult.state;
+    sigintState = state;
 
     // ── Transition to VERIFY ───────────────────────────────────────────────
     sm.transition('VERIFY');
@@ -587,50 +503,14 @@ async function runDaemon(config: LoopConfig): Promise<void> {
     state.currentState = 'run';
     await writeBothStates(state);
 
-    for (const phase of config.phases) {
-      process.stdout.write(`[${state.iteration}/∞] ${phase.name}... `);
-
-      // Plugin hooks: onPhaseStart
-      const prePluginResults = await executeHooks('onPhaseStart', { phase, state }, plugins);
-      let pluginResults: Record<string, any> = { ...prePluginResults };
-
-      logPhaseContext(phase, config);
-
-      const result = await executeShellCommand(phase.command, phase.timeoutMs);
-
-      // Plugin hooks: onPhaseEnd or onError
-      if (result.status === 'error') {
-        const errResults = await executeHooks('onError', { phase, state, error: new Error(result.stderr) }, plugins);
-        Object.assign(pluginResults, errResults);
-      } else {
-        const postPluginResults = await executeHooks('onPhaseEnd', { phase, result, state }, plugins);
-        Object.assign(pluginResults, postPluginResults);
-      }
-      result.pluginResults = pluginResults;
-
-      // ponytail: evaluation in daemon — same as runLoop, catch errors
-      try {
-        const judgment = await evaluatePhase(phase, result);
-        result.judgment = judgment;
-      } catch {
-        // Non-fatal
-      }
-
-      state = updatePhaseResult(state, phase.name, result);
-
-      if (result.status === 'pass') {
-        console.log(`PASS (${result.durationMs}ms)`);
-      } else if (result.status === 'fail') {
-        console.log(`FAIL (${result.durationMs}ms)`);
-        if (result.stderr) console.error(`  stderr: ${result.stderr}`);
-        if (result.stdout) console.error(`  stdout: ${result.stdout}`);
-      } else {
-        console.log(`ERROR (${result.durationMs}ms)`);
-        if (result.stderr) console.error(`  error: ${result.stderr}`);
-      }
-
-      await writeBothStates(state);
-    }
+    // ponytail: daemon ignores iteration count, always shows ∞
+    const fakeConfig = { ...config, maxIterations: Infinity };
+    const phaseResult = await executePhaseGroup(
+      { config: fakeConfig, plugins, writeState: writeBothStates, onPhaseFailed: () => {} },
+      state,
+      state.iteration,
+    );
+    state = phaseResult.state;
 
     sm.transition('VERIFY');
     state.currentState = 'verify';
@@ -718,6 +598,7 @@ async function main(): Promise<void> {
       cron: parsed.cron,
       watchDir: parsed.watchDir,
       loopsConfig: parsed.loopsConfig,
+      planPath: parsed.planPath,
     });
     await daemon.start();
     return;

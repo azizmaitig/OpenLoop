@@ -1,0 +1,29 @@
+planName: stress-test
+tasks:
+  - id: scan-state
+    command: echo "[stress-test] Iteration state:" && type STATE.md 2>nul || echo "No STATE.md found"
+    timeoutMs: 5000
+    status: pass
+    durationMs: 24
+    completedAt: 2026-07-06T19:55:51.603Z
+  - id: llm-analyze
+    command: echo "system state snapshot: scanned at %DATE% %TIME%"
+    timeoutMs: 60000
+    llm:
+      provider: openai
+      prompt: You are a load-test analysis agent. Given the system STATE.md contents in stdout, produce a brief analysis (2-3 sentences) of system health. Include the iteration counter if present. Return JSON with passed (boolean), reason (analysis text), confidence (0-1).
+    status: pass
+    durationMs: 19
+    completedAt: 2026-07-06T19:55:51.603Z
+  - id: measure-throughput
+    command: echo "completed at %DATE% %TIME%" && echo "throughput: OK"
+    timeoutMs: 10000
+    status: pass
+    durationMs: 22
+    completedAt: 2026-07-06T19:55:51.603Z
+  - id: report
+    command: echo "%DATE% %TIME% - stress-test iteration done" && type NUL >> loop-run-log.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 25
+    completedAt: 2026-07-06T19:55:51.603Z

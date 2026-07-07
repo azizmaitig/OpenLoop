@@ -30,6 +30,18 @@ export async function executeMcpPhase(phase: PhaseDef): Promise<PhaseResult> {
     };
   }
 
+  // Guard: this function only supports the MCP config shape
+  if (!('mcpServer' in phase.llm)) {
+    return {
+      status: 'error',
+      exitCode: -1,
+      stdout: '',
+      stderr: 'Phase llm config is not an MCP configuration (missing mcpServer)',
+      durationMs: 0,
+      evidencePath: '',
+    };
+  }
+
   const startTime = performance.now();
   const { mcpServer, tool, prompt } = phase.llm;
 

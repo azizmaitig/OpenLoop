@@ -3,3 +3,17 @@ dist/
 _agent-loop-output/
 _daemon_*.txt
 _test-state.md
+
+incoming/
+*.log
+daemon.err
+nul
+opencode-prompt-*.tmp
+_test-*.ts
+_test-*.md
+_loop-history/
+_loops.yaml
+llm-test.json
+triage-task*.json
+test_*.yaml
+test_*.json

@@ -5,7 +5,9 @@ export interface PhaseDef {
   command: string;
   expectedExitCode: number;
   timeoutMs: number;
-  llm?: { mcpServer: string; tool: string; prompt: string };
+  llm?:
+    | { mcpServer: string; tool: string; prompt: string }
+    | { provider: string; prompt: string };
   pluginHooks?: string[];
 }
 
@@ -66,7 +68,7 @@ export interface PlanYamlTask {
   id: string;
   command: string;
   timeoutMs?: number;
-  llm?: { mcpServer?: string; tool?: string; prompt?: string };
+  llm?: { mcpServer: string; tool: string; prompt: string } | { provider: string; prompt: string };
 }
 
 export interface PlanYamlDoc {
@@ -180,4 +182,18 @@ export type StopChildResult = 'ok' | 'not_found' | 'not_running';
 
 export interface LoopsConfig {
   loops: ChildLoopDef[];
+}
+
+// ── LLM provider (v7) ────────────────────────────────────────────────────────
+
+export type LLMProvider = 'openai' | 'anthropic' | 'opencode';
+
+export interface LLMConfig {
+  provider: LLMProvider;
+  apiKey: string;
+  model: string;
+  endpoint?: string;
+  maxTokens?: number;
+  temperature?: number;
+  opencodeAgent?: string;
 }

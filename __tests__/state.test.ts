@@ -283,7 +283,8 @@ describe("updateStateMd", () => {
     await updateStateMd(p, fm);
 
     const content = await readFile(p, "utf-8");
-    expect(content).toContain("last_run: \"2026-07-05T12:00:00.000Z\"");
+    expect(content).toContain("last_run:");
+    expect(content).toContain("2026-07-05T12:00:00.000Z");
     expect(content).toContain("current_state: running");
     expect(content).toContain("iteration: 5");
     expect(content).toContain("active_children: 2");
@@ -318,7 +319,8 @@ Human written content here.
 
     const content = await readFile(p, "utf-8");
     // New frontmatter values
-    expect(content).toContain("last_run: \"2026-07-05T12:00:00.000Z\"");
+    expect(content).toContain("last_run:");
+    expect(content).toContain("2026-07-05T12:00:00.000Z");
     expect(content).toContain("iteration: 5");
     // Body preserved
     expect(content).toContain("# My Project");

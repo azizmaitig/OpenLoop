@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { ChildLoopDef, ChildLoopState, ChildLoopSummary, LoopsConfig, StartChildResult, StopChildResult, TriggerDef } from './types.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { TaskQueue } from './task-queue.js';
+import { parseYaml } from './yaml.js';
 
 let childIdCounter = 0;
 function generateChildId(): string {
@@ -180,143 +181,36 @@ export class LoopOrchestrator {
 // ── Loops YAML Parser ──────────────────────────────────────────────────────────
 
 function parseLoopsYaml(content: string): LoopsConfig {
-  const doc: LoopsConfig = { loops: [] };
-  let currentLoop: Partial<ChildLoopDef> & { triggers?: TriggerDef[] } | null = null;
-  let currentTrigger: Record<string, string> | null = null;
-
-  const lines = content.split('\n');
-
-  function flushLoop(): void {
-    if (currentLoop?.name) {
-      if (currentLoop.triggers?.length === 0) delete currentLoop.triggers;
-      doc.loops.push(currentLoop as ChildLoopDef);
-    }
+  const doc = parseYaml(content) as Record<string, unknown> | null;
+  if (!doc || !Array.isArray(doc.loops)) {
+    return { loops: [] };
   }
-
-  function flushTrigger(): void {
-    if (currentTrigger?.type) {
-      if (!currentLoop) return;
-      if (!currentLoop.triggers) currentLoop.triggers = [];
-
-      if (currentTrigger.type === 'cron') {
-        currentLoop.triggers.push({ type: 'cron', expression: currentTrigger.schedule ?? '' });
-      } else if (currentTrigger.type === 'fileWatch') {
-        const ft: TriggerDef = { type: 'fileWatch', watchDir: currentTrigger.watchDir ?? '' };
-        if (currentTrigger.pattern) (ft as any).pattern = currentTrigger.pattern;
-        currentLoop.triggers.push(ft);
-      }
-    }
-    currentTrigger = null;
-  }
-
-  function setLoopField(key: string, rawValue: string): void {
-    if (!currentLoop) return;
-    const value = stripQuotesYaml(rawValue);
-    switch (key) {
-      case 'name': currentLoop.name = value; break;
-      case 'planPath': currentLoop.planPath = value; break;
-      case 'watchDir': currentLoop.watchDir = value; break;
-      case 'enabled': currentLoop.enabled = value.toLowerCase() === 'true'; break;
-    }
-  }
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) continue;
-
-    const indent = rawLine.length - rawLine.trimStart().length;
-
-    // Root: expect 'loops:'
-    if (indent === 0) {
-      if (trimmed === 'loops:' || trimmed.startsWith('loops:')) continue;
-      continue;
-    }
-
-    // Indent 2: list item start '- name: ...' or any '- key: value'
-    if (indent === 2 && trimmed.startsWith('- ')) {
-      flushTrigger();
-      flushLoop();
-      currentLoop = {};
-
-      const itemContent = trimmed.slice(2).trim();
-      const colonIdx = itemContent.indexOf(':');
-      if (colonIdx > 0) {
-        const key = itemContent.slice(0, colonIdx).trim();
-        const value = itemContent.slice(colonIdx + 1).trim();
-        if (key === 'name') currentLoop.name = stripQuotesYaml(value);
-      }
-      continue;
-    }
-
-    // In a loop block (indent >= 4)
-    if (currentLoop && indent >= 4) {
-      // 'triggers:' key — start trigger list
-      if (trimmed === 'triggers:') {
-        flushTrigger();
-        currentLoop.triggers = [];
-        continue;
-      }
-
-      // Indent 6: trigger list item '- type: cron' or field inside trigger
-      if (indent === 6) {
-        if (trimmed.startsWith('- ')) {
-          // New trigger item
-          flushTrigger();
-          currentTrigger = {};
-          const itemContent = trimmed.slice(2).trim();
-          const colonIdx = itemContent.indexOf(':');
-          if (colonIdx > 0) {
-            const key = itemContent.slice(0, colonIdx).trim();
-            const value = itemContent.slice(colonIdx + 1).trim();
-            if (key === 'type') currentTrigger.type = stripQuotesYaml(value);
-          }
-        } else if (currentTrigger) {
-          // Field continuation of the current trigger (no dash)
-          const colonIdx = trimmed.indexOf(':');
-          if (colonIdx > 0) {
-            const key = trimmed.slice(0, colonIdx).trim();
-            const value = trimmed.slice(colonIdx + 1).trim();
-            currentTrigger[key] = stripQuotesYaml(value);
-          }
+  // Validate and coerce each loop entry
+  const loops: ChildLoopDef[] = [];
+  for (const raw of doc.loops) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.name !== 'string') continue;
+    const triggers: TriggerDef[] = [];
+    if (Array.isArray(entry.triggers)) {
+      for (const rt of entry.triggers) {
+        if (!rt || typeof rt !== 'object') continue;
+        const t = rt as Record<string, unknown>;
+        if (t.type === 'cron' && typeof t.schedule === 'string') {
+          triggers.push({ type: 'cron', expression: t.schedule });
+        } else if (t.type === 'fileWatch' && typeof t.watchDir === 'string') {
+          const ft: TriggerDef = { type: 'fileWatch', watchDir: t.watchDir };
+          if (typeof t.pattern === 'string') (ft as any).pattern = t.pattern;
+          triggers.push(ft);
         }
-        continue;
-      }
-
-      // Indent 8: fields inside a trigger
-      if (indent === 8 && currentTrigger) {
-        const colonIdx = trimmed.indexOf(':');
-        if (colonIdx > 0) {
-          const key = trimmed.slice(0, colonIdx).trim();
-          const value = trimmed.slice(colonIdx + 1).trim();
-          currentTrigger[key] = stripQuotesYaml(value);
-        }
-        continue;
-      }
-
-      // Indent 4: regular loop fields (when not inside trigger context)
-      if (indent === 4 && !trimmed.startsWith('- ')) {
-        flushTrigger();
-        const colonIdx = trimmed.indexOf(':');
-        if (colonIdx > 0) {
-          const key = trimmed.slice(0, colonIdx).trim();
-          const value = trimmed.slice(colonIdx + 1).trim();
-          setLoopField(key, value);
-        }
-        continue;
       }
     }
+    const def: ChildLoopDef = { name: entry.name as string };
+    if (typeof entry.planPath === 'string') def.planPath = entry.planPath;
+    if (typeof entry.watchDir === 'string') def.watchDir = entry.watchDir;
+    if (typeof entry.enabled === 'boolean') def.enabled = entry.enabled;
+    if (triggers.length > 0) def.triggers = triggers;
+    loops.push(def);
   }
-
-  // Flush last trigger and loop
-  flushTrigger();
-  flushLoop();
-
-  return doc;
-}
-
-function stripQuotesYaml(s: string): string {
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1);
-  }
-  return s;
+  return { loops };
 }
