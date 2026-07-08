@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { platform } from 'node:os';
+import { runCommand } from './shell.js';
 
 export interface SpawnResult {
   stdout: string;
@@ -7,27 +7,10 @@ export interface SpawnResult {
   exitCode: number;
 }
 
-function isWindows(): boolean {
-  return platform() === 'win32';
-}
-
-function buildArgs(command: string): string[] {
-  return isWindows() ? ['cmd.exe', '/c', command] : ['/bin/sh', '-c', command];
-}
-
+/** Thin wrapper — delegates to runCommand and maps to SpawnResult shape. */
 async function exec(command: string, cwd?: string): Promise<SpawnResult> {
-  const proc = Bun.spawn(buildArgs(command), {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    cwd,
-  });
-
-  const [stdout, stderr] = await Promise.all([
-    Bun.readableStreamToText(proc.stdout),
-    Bun.readableStreamToText(proc.stderr),
-  ]);
-  const exitCode = await proc.exited;
-
-  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+  const result = await runCommand(command, { cwd });
+  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
 }
 
 /**
@@ -104,4 +87,42 @@ export async function verifyInWorktree(
 ): Promise<boolean> {
   const { exitCode } = await exec(testCommand, worktreePath);
   return exitCode === 0;
+}
+
+/**
+ * Prune stale git worktrees when the count exceeds maxWorktrees.
+ *
+ * Lists all worktrees via `git worktree list`, removes the oldest
+ * non-HEAD worktrees until count <= maxWorktrees, then runs
+ * `git worktree prune` to clean up stale admin entries.
+ *
+ * @returns paths of pruned worktrees and count of remaining ones.
+ */
+export async function pruneStaleWorktrees(maxWorktrees: number = 5): Promise<{ pruned: string[]; remaining: number }> {
+  const { stdout } = await exec('git worktree list');
+  const lines = stdout.split('\n').filter(Boolean);
+
+  // Skip the first line (main working tree); subsequent lines are worktrees
+  const worktrees = lines.slice(1).map(line => line.split(/\s+/)[0]).filter(Boolean);
+
+  if (worktrees.length <= maxWorktrees) {
+    return { pruned: [], remaining: worktrees.length };
+  }
+
+  const toRemove = worktrees.length - maxWorktrees;
+  const pruned: string[] = [];
+
+  for (let i = 0; i < toRemove && i < worktrees.length; i++) {
+    try {
+      await discardWorktree(worktrees[i]);
+      pruned.push(worktrees[i]);
+    } catch {
+      // skip worktrees that can't be removed
+    }
+  }
+
+  // Clean up stale administrative entries
+  await exec('git worktree prune');
+
+  return { pruned, remaining: worktrees.length - pruned.length };
 }

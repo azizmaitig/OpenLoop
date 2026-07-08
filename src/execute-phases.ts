@@ -14,6 +14,8 @@ import type { Plugin, HookContext } from './plugins.js';
 import { updatePhaseResult } from './state.js';
 import type { PhaseDef, PhaseResult, LoopState, LoopConfig, PlanYamlDoc } from './types.js';
 import { logPhaseContext } from './memory-hooks.js';
+import { appendRunLog } from './run-log.js';
+import type { RunLogEntry } from './run-log.js';
 
 /** Everything executePhaseGroup needs from the caller's context. */
 export interface ExecutionDeps {
@@ -25,6 +27,8 @@ export interface ExecutionDeps {
   planPath?: string;
   /** Optional: getter for the active plan doc (needed for checkpoint planName) */
   getPlanDoc?: () => PlanYamlDoc | null;
+  /** Optional: path to run-log.md for structured log entries */
+  logPath?: string;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -164,44 +168,49 @@ export async function executePhaseGroup(
     }
 
     await deps.writeState(state);
+
+    // ── Write run-log entry (structured JSON, real data) ──
+    if (deps.logPath) {
+      try {
+        const planName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName ?? 'unknown';
+        const entry: RunLogEntry = {
+          run_id: new Date().toISOString(),
+          pattern: planName,
+          runs_count: state.iteration,
+          outcome: result.status === 'pass' ? 'pass' : result.status === 'fail' ? 'fail' : 'error',
+          timestamp: new Date().toISOString(),
+          duration_ms: totalPhaseMs,
+        };
+        await appendRunLog(deps.logPath, entry);
+      } catch {
+        // non-fatal: log write failures should not crash the loop
+      }
+    }
   }
 
   return { allPassed, state };
 }
 
-// ── Shell command executor (moved from loop.ts) ──────────────────────────────
+// ── Shell command executor ────────────────────────────────────────────────────
 
-import { executeWithTimeout } from './safety.js';
+import { runCommand } from './shell.js';
 
 async function executeShellCommand(
   command: string,
-  timeoutMs: number,
+  timeoutMs?: number,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
 
   try {
-    return await executeWithTimeout(async (signal) => {
-      const proc = Bun.spawn(['cmd.exe', '/c', command], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        signal,
-      });
-
-      const [stdout, stderr] = await Promise.all([
-        Bun.readableStreamToText(proc.stdout),
-        Bun.readableStreamToText(proc.stderr),
-      ]);
-
-      const exitCode = await proc.exited;
-
-      return {
-        status: exitCode === 0 ? 'pass' : 'fail',
-        exitCode,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        durationMs: Date.now() - startTime,
-        evidencePath: '',
-      };
-    }, timeoutMs, command);
+    const result = await runCommand(command, { timeoutMs });
+    return {
+      status: result.exitCode === 0 ? 'pass' : 'fail',
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      durationMs: result.durationMs,
+      evidencePath: '',
+    };
   } catch (err) {
     return {
       status: 'error',
