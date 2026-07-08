@@ -5,9 +5,7 @@ export interface PhaseDef {
   command: string;
   expectedExitCode: number;
   timeoutMs: number;
-  llm?:
-    | { mcpServer: string; tool: string; prompt: string }
-    | { provider: string; prompt: string };
+  llm?: { mcpServer: string; tool: string; prompt: string };
   pluginHooks?: string[];
 }
 
@@ -68,12 +66,27 @@ export interface PlanYamlTask {
   id: string;
   command: string;
   timeoutMs?: number;
-  llm?: { mcpServer: string; tool: string; prompt: string } | { provider: string; prompt: string };
+  llm?: { mcpServer?: string; tool?: string; prompt?: string };
+  // ── New for v0.7 ──
+  /** Command to run when this task's verification fails — e.g. opencode run to auto-fix TS errors */
+  healCommand?: string;
+  /** Max retry count for auto-heal (0 = no retry, default: 0) */
+  maxRetries?: number;
 }
 
 export interface PlanYamlDoc {
   planName: string;
   tasks: PlanYamlTask[];
+}
+
+export interface CheckpointState {
+  planPath: string;
+  planName: string;
+  startedAt: string;
+  updatedAt: string;
+  completedTaskIds: string[];
+  inProgressTaskId: string | null;
+  results: Record<string, { status: string; durationMs: number; exitCode: number }>;
 }
 
 export interface PlanContext {
@@ -182,18 +195,4 @@ export type StopChildResult = 'ok' | 'not_found' | 'not_running';
 
 export interface LoopsConfig {
   loops: ChildLoopDef[];
-}
-
-// ── LLM provider (v7) ────────────────────────────────────────────────────────
-
-export type LLMProvider = 'openai' | 'anthropic' | 'opencode';
-
-export interface LLMConfig {
-  provider: LLMProvider;
-  apiKey: string;
-  model: string;
-  endpoint?: string;
-  maxTokens?: number;
-  temperature?: number;
-  opencodeAgent?: string;
 }

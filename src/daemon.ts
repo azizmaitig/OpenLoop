@@ -1,21 +1,18 @@
 import { resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
-import type { ServerWebSocket } from 'bun';
-import type { DaemonStatus } from './types.js';
+import type { DaemonStatus, Task } from './types.js';
 import { TaskQueue } from './task-queue.js';
+import { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js';
+import { updateStateMd } from './state.js';
+import type { StateMdFrontmatter } from './state.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { LoopOrchestrator } from './orchestrator.js';
-import { processQueue } from './task-processor.js';
-import type { TaskContext } from './task-processor.js';
-import { readPauseState } from './state.js';
-import { createFetchHandler } from './routes.js';
-import type { DaemonAPI } from './daemon-api.js';
+import { startHttpServer } from './http-server.js';
+import type { HttpServerHandlers, HttpServerInstance } from './http-server.js';
+import { loadDashboardHtml } from './dashboard.js';
 
 export class Daemon {
   private _status: DaemonStatus;
-  private server: ReturnType<typeof Bun.serve> | null = null;
-  private dashboardHtml = '';
-  private wsClients = new Set<ServerWebSocket<unknown>>();
+  private httpServer: HttpServerInstance | null = null;
   private _stateInterval: ReturnType<typeof setInterval> | null = null;
   private _childInterval: ReturnType<typeof setInterval> | null = null;
   private startedAt: number = 0;
@@ -27,16 +24,11 @@ export class Daemon {
   readonly orchestrator: LoopOrchestrator;
   readonly baseDir: string;
 
-  private _planPath: string | undefined;
-  private _cronExpr: string | undefined;
-
   constructor(
     private _port: number = 3000,
     baseDir?: string,
-    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string },
+    opts?: { cron?: string; watchDir?: string; loopsConfig?: string },
   ) {
-    this._planPath = opts?.planPath;
-    this._cronExpr = opts?.cron;
     this._loopsConfigPath = opts?.loopsConfig;
     this.orchestrator = new LoopOrchestrator(this.taskQueue, this.triggerManager);
     this.orchestrator.onTaskEnqueued = () => this.maybeProcessQueue();
@@ -56,7 +48,6 @@ export class Daemon {
       try {
         const trigger = new CronTrigger(cronExpr, () => {
           this.taskQueue.enqueue(cronExpr, { timeoutMs: 60000 });
-          // ponytail: triggers enqueue tasks, processQueue picks them up
           this.maybeProcessQueue();
         });
         this.triggerManager.register('cron-cli', trigger);
@@ -94,38 +85,31 @@ export class Daemon {
       startTime: new Date().toISOString(),
     };
 
-    // Cache dashboard HTML
-    const dashboardPath = resolve(import.meta.dirname, 'dashboard', 'index.html');
-    console.log('[dashboard] resolving:', dashboardPath);
-    try {
-      this.dashboardHtml = readFileSync(dashboardPath, 'utf-8');
-    } catch {
-      console.error('[daemon] dashboard/index.html not found — /dashboard route will return 404');
-    }
+    // Build handlers for the HTTP server
+    const handlers: HttpServerHandlers = {
+      getState: () => this.getState(),
+      stopDaemon: () => this.stop(),
+      enqueueTask: (command, timeoutMs, llm) =>
+        this.taskQueue.enqueue(command, { timeoutMs, llm: llm ? { mcpServer: '', tool: '', prompt: llm } : undefined }),
+      onTaskEnqueued: () => this.maybeProcessQueue(),
+      listChildren: () => this.orchestrator.listChildren(),
+      startChild: (id) => this.orchestrator.startChild(id),
+      stopChild: (id) => this.orchestrator.stopChild(id),
+      addChild: (def) => this.orchestrator.addChild(def),
+      removeChild: (id) => this.orchestrator.removeChild(id),
+      getChildState: (id) => this.orchestrator.getChildState(id) ?? undefined,
+      listTaskHistory: (dir, page, pageSize) => listTaskHistory(dir, page, pageSize),
+      readTaskHistory: (dir, id) => readTaskHistory(dir, id),
+      baseDir: this.baseDir,
+    };
 
-    this.server = Bun.serve({
-      port: this._port,
-      websocket: {
-        open: (ws) => {
-          this.wsClients.add(ws);
-          ws.send(JSON.stringify({
-            type: 'state_change',
-            data: { ...this.getState(), children: this.orchestrator.listChildren() },
-            timestamp: new Date().toISOString(),
-          }));
-        },
-        close: (ws) => {
-          this.wsClients.delete(ws);
-        },
-        message: () => {},
-      },
-      fetch: createFetchHandler(this),
-    });
+    const dashboardHtml = loadDashboardHtml();
+    this.httpServer = startHttpServer(this._port, handlers, dashboardHtml);
 
-    this._port = this.server!.port!;
-    this._status.port = this.server!.port!;
+    this._port = this.httpServer.port;
+    this._status.port = this.httpServer.port;
 
-    console.error(`Daemon v${this._status.version} listening on port ${this.server.port}`);
+    console.error(`Daemon v${this._status.version} listening on port ${this.httpServer.port}`);
 
     // Start triggers
     if (this.triggerManager.count > 0) {
@@ -138,35 +122,21 @@ export class Daemon {
       await this.orchestrator.loadFromConfig(loopsConfig);
     }
 
-    // ponytail: inline child loop when --plan + --cron given (no loops.yaml needed)
-    if (this._planPath && this._cronExpr) {
-      const id = this.orchestrator.addChild({
-        name: `plan-${this._cronExpr.replace(/\s+/g, '-')}`,
-        planPath: this._planPath,
-        triggers: [{ type: 'cron', expression: this._cronExpr }],
-        enabled: true,
-      });
-      await this.orchestrator.startChild(id);
-      console.log(`[daemon] Registered plan "${this._planPath}" on cron "${this._cronExpr}"`);
-    } else if (this._planPath) {
-      console.warn(`[daemon] --plan provided without --cron — plan will not auto-run. Add --cron to schedule it.`);
-    }
-
     // Broadcast state every 2s
     this._stateInterval = setInterval(() => {
-      if (this._status.status !== 'running') return;
-      this.broadcast('state_change', { ...this.getState(), children: this.orchestrator.listChildren() });
+      if (this._status.status !== 'running' || !this.httpServer) return;
+      this.httpServer.broadcast('state_change', { ...this.getState(), children: this.orchestrator.listChildren() });
     }, 2000);
 
     // Check child status changes every 1s
     let prevChildrenJson = JSON.stringify(this.orchestrator.listChildren());
     this._childInterval = setInterval(() => {
-      if (this._status.status !== 'running') return;
+      if (this._status.status !== 'running' || !this.httpServer) return;
       const current = this.orchestrator.listChildren();
       const currentJson = JSON.stringify(current);
       if (currentJson !== prevChildrenJson) {
         prevChildrenJson = currentJson;
-        this.broadcast('child_status_change', current);
+        this.httpServer.broadcast('child_status_change', current);
       }
     }, 1000);
 
@@ -181,47 +151,89 @@ export class Daemon {
     if (this._stateInterval) clearInterval(this._stateInterval);
     if (this._childInterval) clearInterval(this._childInterval);
     this.triggerManager.stopAll();
-    this.server?.stop(true);
+    this.httpServer?.stop();
     this.stopResolve?.();
     console.error('Daemon stopped gracefully');
   }
 
-  private broadcast(type: string, data: unknown): void {
-    const message = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
-    for (const ws of this.wsClients) {
-      try { ws.send(message); } catch { this.wsClients.delete(ws); }
+  private async executeTask(task: Task): Promise<void> {
+    if (!isSafeCommand(task.command)) {
+      this.taskQueue.fail(task.id, 'Command rejected: unsafe shell metacharacters detected');
+      this.httpServer?.broadcast('task_completed', this.taskQueue.get(task.id));
+      return;
     }
-  }
 
-  private isAuthorized(req: Request): boolean {
-    const apiKey = process.env.LOOP_API_KEY;
-    if (!apiKey) return true; // No key configured = open access
-    const auth = req.headers.get('Authorization');
-    return auth === `Bearer ${apiKey}`;
-  }
+    const timeoutMs = task.timeoutMs ?? 60000;
+    const startTime = Date.now();
 
-  private async isPaused(): Promise<boolean> {
-    return readPauseState(resolve(this.baseDir, 'STATE.md'));
+    try {
+      const proc = Bun.spawn(['cmd.exe', '/c', task.command], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const [stdout, stderr] = await Promise.all([
+        Bun.readableStreamToText(proc.stdout),
+        Bun.readableStreamToText(proc.stderr),
+      ]);
+
+      const exitCode = await proc.exited;
+
+      this.taskQueue.complete(task.id, {
+        exitCode,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        durationMs: Date.now() - startTime,
+      });
+      this.httpServer?.broadcast('task_completed', this.taskQueue.get(task.id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.taskQueue.fail(task.id, msg);
+      this.httpServer?.broadcast('task_completed', this.taskQueue.get(task.id));
+    }
   }
 
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     this.processing = true;
-    try {
-      const ctx: TaskContext = {
-        taskQueue: this.taskQueue,
-        baseDir: this.baseDir,
-        getState: () => this._status,
-        isPaused: () => this.isPaused(),
-        broadcast: (type, data) => this.broadcast(type, data),
-      };
-      await processQueue(ctx);
-    } finally {
-      this.processing = false;
+
+    while (this._status.status === 'running') {
+      const task = this.taskQueue.dequeue();
+      if (!task) break;
+
+      await this.executeTask(task);
+
+      // Save history (best-effort, non-blocking)
+      const completedTask = this.taskQueue.get(task.id);
+      if (completedTask) {
+        saveTaskHistory(this.baseDir, completedTask).catch(() => {});
+
+        // Auto-update STATE.md frontmatter after each task
+        const stateMdPath = resolve(this.baseDir, 'STATE.md');
+        const taskCount = this.taskQueue.history.length;
+        const fm: StateMdFrontmatter = {
+          last_run: new Date().toISOString(),
+          current_state: this._status.status,
+          iteration: taskCount,
+          active_children: this.orchestrator.listChildren().filter(c => c.status === 'running').length,
+          high_priority: 0,
+          watch_items: 0,
+          task_count: taskCount,
+        };
+        updateStateMd(stateMdPath, fm).catch(() => {});
+      }
     }
+
+    this.processing = false;
   }
 
   private maybeProcessQueue(): void {
     this.processQueue().catch(() => {});
   }
+}
+
+const SHELL_METACHARS = /[;&|`$\n\r]/;
+
+function isSafeCommand(cmd: string): boolean {
+  return !SHELL_METACHARS.test(cmd);
 }

@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-// These imports will FAIL — ../src/plan-executor.js does not exist yet
-// PlanYamlTask and PlanYamlDoc are not yet defined in types.ts
-// These tests are structural stubs describing the expected API before implementation
-import { parsePlanYaml, dumpPlanYaml } from "../src/plan-executor.js";
+// Imports resolve via Bun's .js → .ts automatic extension resolution
+import { parsePlanYaml, stringifyPlanYaml } from "../src/plan-executor.js";
 import type { PlanYamlTask, PlanYamlDoc } from "../src/types.js";
 
 const FIXTURE_PATH = "__tests__/fixtures/sample.plan.yaml";
@@ -63,7 +61,7 @@ describe("parsePlanYaml", () => {
   });
 });
 
-describe("dumpPlanYaml", () => {
+describe("stringifyPlanYaml", () => {
   test("serializes PlanYamlDoc with planName and task status fields", () => {
     const doc: PlanYamlDoc = {
       planName: "test-fixture",
@@ -75,7 +73,7 @@ describe("dumpPlanYaml", () => {
         },
       ],
     };
-    const output = dumpPlanYaml(doc);
+    const output = stringifyPlanYaml(doc);
     expect(output).toContain("test-fixture");
     expect(output).toContain("setup");
     expect(output).toContain("echo setup");
@@ -83,7 +81,7 @@ describe("dumpPlanYaml", () => {
 
   test("round-trips through parsePlanYaml", async () => {
     const original = await parsePlanYaml(FIXTURE_PATH);
-    const serialized = dumpPlanYaml(original);
+    const serialized = stringifyPlanYaml(original);
     const reparsed = await parsePlanYaml(serialized);
     expect(reparsed.planName).toBe(original.planName);
     expect(reparsed.tasks).toHaveLength(original.tasks.length);
@@ -104,7 +102,7 @@ describe("dumpPlanYaml", () => {
         },
       ],
     };
-    const output = dumpPlanYaml(doc);
+    const output = stringifyPlanYaml(doc);
     expect(output).toContain("mcpServer: filesystem");
     expect(output).toContain("tool: write");
     expect(output).toContain("prompt: write artifact");
@@ -115,7 +113,7 @@ describe("dumpPlanYaml", () => {
       planName: "empty-test",
       tasks: [],
     };
-    const output = dumpPlanYaml(doc);
+    const output = stringifyPlanYaml(doc);
     expect(output).toContain("planName: empty-test");
   });
 });
