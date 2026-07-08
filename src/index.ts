@@ -1,5 +1,5 @@
 export type { StateMachineState, PhaseDef, LoopConfig, PhaseResult, LoopState, LoopResult, Judgment, PlanYamlTask, PlanYamlDoc, PlanContext, DaemonStatus, ChildLoopDef, ChildLoopState, ChildLoopSummary, LoopsConfig, ChildLoopStatus } from './types.js';
-export { DEFAULT_CONFIG, parseLoopArgs, mergeConfig } from './config.js';
+export { DEFAULT_CONFIG, mergeConfig } from './config.js';
 export { readState, writeState, createInitialState, updatePhaseResult, updateStateMd } from './state.js';
 export type { StateMdFrontmatter } from './state.js';
 export { initProject } from './init.js';
