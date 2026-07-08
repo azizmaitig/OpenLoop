@@ -1,6 +1,6 @@
 # agent-loop — v8 Architecture
 
-Bun/TS loop orchestrator: 4-state machine, plugin phases, MCP execution, agentmemory hooks, HTTP/WS daemon, plan-driven execution, LLM integration (OpenAI + Anthropic), triggers, multi-loop orchestrator, git worktree isolation. Runtime deps: js-yaml v5. ~2600 LOC (30 src files), 438 tests (33 test files).
+Bun/TS loop orchestrator: 4-state machine, plugin phases, MCP execution, agentmemory hooks, HTTP/WS daemon, plan-driven execution, LLM integration (OpenAI + Anthropic), triggers, multi-loop orchestrator, git worktree isolation. Runtime deps: js-yaml v5. ~2700 LOC (31 src files), 438 tests (33 test files).
 
 ## Notable Design Decisions (v0.7)
 
@@ -22,10 +22,15 @@ v0.7 does not add parallel phase execution. All phases remain sequential (reaffi
 mindmap
   root((agent-loop v8))
     Core Engine
+      loop.ts (slimmed entry)
       index.ts
       types.ts
       state-machine.ts
       state.ts
+      cli.ts (extracted from loop.ts)
+      state-writer.ts (extracted from loop.ts)
+      loop-runner.ts (extracted from loop.ts)
+      daemon-runner.ts (extracted from loop.ts)
       safety.ts
       config.ts
       plugins.ts
@@ -33,6 +38,7 @@ mindmap
       execute-phases.ts
     Shared Utilities
       yaml.ts
+      shell.ts
     MCP & Agentmemory
       mcp.ts
       agentmemory.ts
@@ -56,27 +62,34 @@ mindmap
     LLM Integration
       llm.ts
       evaluate.ts
+      eval-core.ts
 ```
 
 ## Modules by Subsystem
 
-### Core Engine (9 files)
+### Core Engine (13 files)
 | File | Role |
 |------|------|
+| loop.ts | Slim entry point: main(), crash handlers, SIGINT handler (~130 LOC, was 753 before extraction) |
 | index.ts | Barrel export (12 lines) |
 | types.ts | Core types: StateMachineState, PhaseDef, LoopConfig, PhaseResult, LoopState, LoopResult, Judgment |
 | state-machine.ts | 4-state (init/run/verify/done) × 6-event flat lookup, ~49 LOC |
 | state.ts | Dual persistence: STATE.md (YAML frontmatter via yaml.ts) + state.json, ~134 LOC |
+| cli.ts | CLI arg parsing: parseArgs, printHelp, ParsedArgs, DEMO_TASK, TASK_REGISTRY, resolvePhases — extracted from loop.ts (~210 LOC) |
+| state-writer.ts | State persistence helpers: OUTPUT_DIR, writeJsonState, writeBothStates, currentState ref for crash handlers — extracted from loop.ts (~30 LOC) |
+| loop-runner.ts | Single-run loop: runLoop(), resolveTransition(), resolveHardcoded() — extracted from loop.ts (~220 LOC) |
+| daemon-runner.ts | Daemon-mode loop: runDaemon(), tick() — extracted from loop.ts (~100 LOC) |
 | safety.ts | executeWithTimeout (AbortController), max iterations cap (20), SIGINT handler, ~73 LOC |
 | config.ts | DEFAULT_CONFIG, parseLoopArgs, mergeConfig (hard cap 20), ~81 LOC |
 | plugins.ts | Plugin interface, HookContext, loadPlugins (dynamic import), executeHooks at 5 lifecycle points, ~116 LOC |
 | plan-executor.ts | YAML-based plan loader (via yaml.ts), parsePlanYaml / dumpPlanYaml, plan-driven loop plugin (beforeLoop / afterLoop), ~95 LOC |
 | execute-phases.ts | Shared phase execution: executePhaseGroup() extracted from loop.ts runLoop/tick duplication, ~143 LOC |
 
-### Shared Utilities (1 file)
+### Shared Utilities (2 files)
 | File | Role |
 |------|------|
 | yaml.ts | js-yaml wrapper: loadYaml, parseYaml (safe), dumpYaml, parseFrontmatter (--- delimited), dumpFrontmatter, ~40 LOC |
+| shell.ts | Unified shell execution: runCommand(command, opts?) with RunOptions/RunResult, consolidated isSafeCommand/isSafePath, platform detection via os.platform(), timeout via AbortController — replaces 4 private implementations, ~80 LOC |
 
 ### MCP Execution (1 file)
 | File | Role |
@@ -121,10 +134,12 @@ mindmap
 |------|------|
 | maker-checker-plugin.ts | Dual-phase execution (maker+checker) with LLM-based verification and retry logic, ~152 LOC |
 
-### LLM Integration — v7 (1 file)
+### LLM Integration — v7 (3 files)
 | File | Role |
 |------|------|
 | llm.ts | Raw-fetch HTTP clients for OpenAI + Anthropic (no SDKs), custom endpoints (Ollama), dotted-path response extraction, ~180 LOC |
+| evaluate.ts | Phase evaluation using exit-code or LLM/MCP, ~67 LOC — delegates to eval-core.ts |
+| eval-core.ts | Unified LLM eval primitives: buildLlmConfig, buildEvalPrompt, parseJsonResponse, evalWithLlm, exitCodeJudgment. Used by evaluate.ts and maker-checker-plugin.ts, ~110 LOC |
 
 ## Data Flow
 
@@ -161,13 +176,16 @@ mindmap
 ## Key Decisions
 
 - **ADR-0001**: Raw HTTP (fetch to localhost:3111) over MCP subprocess for agentmemory — lower latency, smaller failure surface (`docs/adr/0001-raw-http-agentmemory-transport.md`)
-- **ADR-0003**: Use js-yaml instead of custom YAML parsers. All YAML processing consolidated into `src/yaml.ts`. Reduces hand-rolled parser code by ~270 LOC
+- **ADR-0003**: Use js-yaml instead of custom YAML parsers. All YAML processing consolidated into `src/yaml.ts`. Reduces hand-rolled parser code by ~370 LOC across 5 files (state.ts, plan-executor.ts, orchestrator.ts, config.ts, collision.ts)
 - **ADR-0004**: DaemonAPI seam interface — routes never touch Daemon internals directly
 - **ADR-0005**: Shared executePhaseGroup() — eliminates ~50 LOC of duplication between runLoop() and tick()
+- **ADR-0006**: Loop.ts god module extraction — split 753 LOC entry point into focused modules: cli.ts (arg parsing), state-writer.ts (persistence), loop-runner.ts (single-run loop), daemon-runner.ts (daemon loop). Entry point reduced to ~130 LOC. Tests unaffected — same exports, same spawn entry.
+- **ADR-0007**: Unify LLM evaluation logic into `src/eval-core.ts` — shared `buildLlmConfig`, `buildEvalPrompt`, `parseJsonResponse`, `evalWithLlm`, `exitCodeJudgment`. Removes duplicated env config, prompt construction, and JSON response parsing from `src/evaluate.ts` and `src/maker-checker-plugin.ts`. Fixes scoping bug in evaluate.ts where `evalPrompt` was block-scoped to the direct-LLM path but referenced in the MCP path. Eliminates ~80 LOC of duplicated code.
+- **ADR-0008**: Unify shell execution into `src/shell.ts` — `runCommand(command, opts?)` with options bag, consolidated `isSafeCommand`/`isSafePath` safety checks. Replaces 4 private implementations across execute-phases.ts, worktree.ts, task-processor.ts, orchestrator.ts. Single error model (no throws), platform detection via `os.platform()`. (`docs/adr/0008-unify-shell-execution.md`)
 - **Fire-and-forget memory ops**: All agentmemory calls are fire-and-forget with 2s timeout, no retry, errors swallowed
 - **Ponytail patterns**: Flat lookup state machine (no OOP), AbortController for timeouts, mutable global for SIGINT
 - **Checkpoint over plan YAML mutation**: `.checkpoint.json` saved after every phase (authoritative). Plan YAML only written on full completion — never partial. Prevents corruption on crash.
-- **Heal as for-loop, not FSM state**: Auto-heal runs a simple `for` loop in `loop.ts`. No `heal` state added to the FSM. Operational concern ≠ state machine concern.
+- **Heal as for-loop, not FSM state**: Auto-heal runs a simple `for` loop in `execute-phases.ts`. No `heal` state added to the FSM. Operational concern ≠ state machine concern.
 - **healCommand on verify tasks**: The verify task that can fail owns its own heal command. No heuristic linking verify-N back to batch-N.
 - **No parallel execution** (reaffirms ADR-0002): All phases remain sequential. Real plan YAMLs are sequential chains — nothing to parallelize.
 
@@ -190,7 +208,7 @@ The `--plan <path>` CLI flag enables plan-driven mode. When set, the loop loads 
 - Plugin export: `createPlugin()` returns `{ name: "plan-executor", beforeLoop, afterLoop }` — registered via `plugins` config or auto-loaded when `--plan` is set
 - New types in `types.ts`: `PhaseResult` gains `duration` and `completedAt` fields; `LoopConfig` gains optional `planPath`
 - **Checkpoint file**: along side the plan file, a `<plan>.yaml.checkpoint.json` is written after every completed phase. Checkpoint is authoritative for crash recovery. Plan YAML is only written on full success.
-- **Auto-heal**: verify tasks can specify `healCommand` and `maxRetries`. On verify failure, `loop.ts` runs heal command and re-verifies up to `maxRetries` times via a simple for-loop.
+- **Auto-heal**: verify tasks can specify `healCommand` and `maxRetries`. On verify failure, `execute-phases.ts` runs heal command and re-verifies up to `maxRetries` times via a simple for-loop.
 
 ## Configuration
 
@@ -227,7 +245,7 @@ The `--plan <path>` CLI flag enables plan-driven mode. When set, the loop loads 
 ## v8 Improvements
 
 - **Daemon slice** (ADR-0004): Extracted routes, task-processor, and DaemonAPI from daemon.ts. Reduced daemon.ts from 571→~210 LOC (63% reduction). Routes testable in isolation via DaemonAPI mock
-- **YAML consolidation** (ADR-0003): Replaced 4 custom YAML parsers (~390 LOC) with js-yaml v5 via shared yaml.ts (~40 LOC). Reduced state.ts by ~15%, plan-executor.ts by ~5%, orchestrator.ts by ~40%. Only runtime dependency added
+- **YAML consolidation** (ADR-0003): Replaced 5 custom YAML parsers (~490 LOC) with js-yaml v5 via shared yaml.ts (~40 LOC). Reduced state.ts by ~15%, plan-executor.ts by ~5%, orchestrator.ts by ~40%, collision.ts by ~39% (256→155 LOC). Only runtime dependency added
 - **Loop dedup** (ADR-0005): Extracted executePhaseGroup() from runLoop()/tick() duplication (~50 LOC from each). Created execute-phases.ts with ExecutionDeps interface. Phase execution now testable in isolation
 - **Test coverage**: 438 tests (up from 393 baseline), 33 test files, 984 expect() calls
 
