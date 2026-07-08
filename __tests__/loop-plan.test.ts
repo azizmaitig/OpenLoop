@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs } from "../loop.js";
+import { parseArgs } from "../src/cli.js";
 
 describe("plan-driven loop mode", () => {
   test("--plan flag sets planPath in parsed args", () => {
