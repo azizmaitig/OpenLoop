@@ -23,11 +23,4 @@ tasks:
     status: pass
     durationMs: 22
     completedAt: '2026-07-07T04:28:12.821Z'
-  - id: report
-    command: >-
-      echo {"run_id": "%DATE% %TIME%", "pattern": "ci-sweeper", "outcome": "completed", "timestamp": "%DATE% %TIME%",
-      "duration_ms": 0} >> loop-run-log.md
-    timeoutMs: 5000
-    status: pass
-    durationMs: 22
-    completedAt: '2026-07-07T04:28:12.821Z'
+

@@ -21,9 +21,3 @@ tasks:
     status: pass
     durationMs: 22
     completedAt: 2026-07-06T19:55:51.603Z
-  - id: report
-    command: echo "%DATE% %TIME% - stress-test iteration done" && type NUL >> loop-run-log.md
-    timeoutMs: 5000
-    status: pass
-    durationMs: 25
-    completedAt: 2026-07-06T19:55:51.603Z
