@@ -1,5 +1,6 @@
-import type { PhaseDef, PhaseResult, LoopState, LoopResult, LLMConfig, Judgment } from './types.js';
+import type { PhaseDef, PhaseResult, LoopState, LoopResult, Judgment } from './types.js';
 import type { Plugin } from './plugins.js';
+import { buildLlmConfig, parseJsonResponse } from './eval-core.js';
 import { callLLM } from './llm.js';
 
 export interface MakerCheckerConfig {
@@ -16,31 +17,12 @@ export interface MakerCheckerConfig {
 }
 
 /**
- * Build LLM config from environment variables (LLM_PROVIDER, LLM_API_KEY, LLM_MODEL).
- * Returns undefined when a required variable is missing.
- */
-function envLlmConfig(): LLMConfig | undefined {
-  const provider = (Bun.env.LLM_PROVIDER ?? '') as LLMConfig['provider'];
-  const apiKey = Bun.env.LLM_API_KEY;
-  const model = Bun.env.LLM_MODEL;
-
-  if (!provider || !apiKey || !model) return undefined;
-
-  return {
-    provider: provider as LLMConfig['provider'],
-    apiKey,
-    model,
-    temperature: 0,
-  };
-}
-
-/**
  * Build an AI-verification prompt from the maker phase result, call the LLM,
  * and return a Judgment.  Falls back to undefined (no AI verdict) on any error
  * so the loop's existing retry logic kicks in unchanged.
  */
 async function runAiVerification(result: PhaseResult): Promise<Judgment | undefined> {
-  const config = envLlmConfig();
+  const config = buildLlmConfig();
   if (!config) return undefined;
 
   const prompt = [
@@ -53,16 +35,10 @@ async function runAiVerification(result: PhaseResult): Promise<Judgment | undefi
 
   try {
     const text = await callLLM(config, prompt);
-    const parsed: unknown = JSON.parse(text);
+    const parsed = parseJsonResponse(text);
 
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'passed' in parsed &&
-      typeof (parsed as Record<string, unknown>).passed === 'boolean'
-    ) {
-      const p = parsed as { passed: boolean; reason?: string };
-      return { passed: p.passed, reason: p.reason ?? '', confidence: 0.8 };
+    if (parsed && typeof parsed.passed === 'boolean') {
+      return { passed: parsed.passed, reason: String(parsed.reason ?? ''), confidence: 0.8 };
     }
 
     return undefined;
