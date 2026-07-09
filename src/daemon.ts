@@ -1,13 +1,13 @@
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { ServerWebSocket } from 'bun';
-import type { DaemonStatus } from './types.js';
+import type { DaemonStatus, LoopState } from './types.js';
 import { TaskQueue } from './task-queue.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { LoopOrchestrator } from './orchestrator.js';
 import { processQueue } from './task-processor.js';
 import type { TaskContext } from './task-processor.js';
-import { readPauseState } from './state.js';
+import { readPauseState, readState } from './state.js';
 import { createFetchHandler } from './routes.js';
 import type { DaemonAPI } from './daemon-api.js';
 
@@ -18,6 +18,9 @@ export class Daemon {
   private wsClients = new Set<ServerWebSocket<unknown>>();
   private _stateInterval: ReturnType<typeof setInterval> | null = null;
   private _childInterval: ReturnType<typeof setInterval> | null = null;
+  private _loopState: LoopState | null = null;
+  private _loopStateInterval: ReturnType<typeof setInterval> | null = null;
+  private _loopStateDir: string;
   private startedAt: number = 0;
   private stopResolve: (() => void) | null = null;
   private processing = false;
@@ -33,7 +36,7 @@ export class Daemon {
   constructor(
     private _port: number = 3000,
     baseDir?: string,
-    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string },
+    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string; loopStateDir?: string },
   ) {
     this._planPath = opts?.planPath;
     this._cronExpr = opts?.cron;
@@ -49,6 +52,13 @@ export class Daemon {
       port: _port,
     };
     this.baseDir = baseDir ?? resolve('.');
+
+    // Loop ↔ daemon path contract: must match OUTPUT_DIR (src/state.ts:141) exactly
+    // so we read the same STATE.md the phase loop writes. Resolve in the body, not
+    // as a parameter default, because process.cwd() is not available at param-eval time.
+    // Constraint: the standalone `start` loop and the daemon MUST share CWD.
+    const loopStateDir = opts?.loopStateDir ?? resolve(process.cwd(), '_agent-loop-output');
+    this._loopStateDir = loopStateDir;
 
     // Register triggers from CLI options
     if (opts?.cron) {
@@ -74,7 +84,7 @@ export class Daemon {
     }
   }
 
-  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null } {
+  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null; loopState: LoopState | null } {
     const uptime = this.startedAt > 0
       ? Math.floor((Date.now() - this.startedAt) / 1000)
       : 0;
@@ -83,6 +93,7 @@ export class Daemon {
       uptime,
       queueLength: this.taskQueue.length,
       currentTask: this.taskQueue.current,
+      loopState: this._loopState ?? null,
     };
   }
 
@@ -158,6 +169,16 @@ export class Daemon {
       this.broadcast('state_change', { ...this.getState(), children: this.orchestrator.listChildren() });
     }, 2000);
 
+    // Poll the phase loop's STATE.md (written by writeBothStates) and cache it for /state + WS.
+    this._loopStateInterval = setInterval(async () => {
+      if (this._status.status !== 'running') return;
+      try {
+        this._loopState = await readState(resolve(this._loopStateDir, 'STATE.md'));
+      } catch {
+        // keep previous value on transient read error
+      }
+    }, 2000);
+
     // Check child status changes every 1s
     let prevChildrenJson = JSON.stringify(this.orchestrator.listChildren());
     this._childInterval = setInterval(() => {
@@ -180,6 +201,7 @@ export class Daemon {
     this._status.status = 'stopped';
     if (this._stateInterval) clearInterval(this._stateInterval);
     if (this._childInterval) clearInterval(this._childInterval);
+    if (this._loopStateInterval) clearInterval(this._loopStateInterval);
     this.triggerManager.stopAll();
     this.server?.stop(true);
     this.stopResolve?.();
