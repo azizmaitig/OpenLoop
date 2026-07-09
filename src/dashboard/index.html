@@ -732,6 +732,55 @@ function renderLive() {
   });
 }
 
+function loopCardHtml(state) {
+  if (!state || !state.loopState) {
+    return '<section class="card"><h2>Loop</h2><p class="empty">No loop running</p></section>';
+  }
+  var ls = state.loopState;
+  var stateMap = { init: 'pending', run: 'running', verify: 'pending', done: 'completed' };
+  var h = '<section class="card">';
+  h += '<h2>Loop</h2>';
+  h += '<dl class="kv">';
+  h += '<dt>State</dt><dd>' + badgeHtml(stateMap[ls.currentState] || 'pending') + '</dd>';
+  h += '<dt>Iteration</dt><dd>' + esc(String(ls.iteration != null ? ls.iteration : '-')) + '</dd>';
+  h += '<dt>Started</dt><dd>' + timeStr(ls.startTime) + '</dd>';
+  h += '</dl>';
+
+  if (ls.errors && ls.errors.length > 0) {
+    h += '<div class="error-state">';
+    for (var e = 0; e < ls.errors.length; e++) {
+      h += '<div>' + esc(ls.errors[e]) + '</div>';
+    }
+    h += '</div>';
+  }
+
+  var names = Object.keys(ls.phaseResults || {});
+  if (names.length === 0) {
+    h += '<p class="empty">No phases yet</p>';
+  } else {
+    h += '<div style="overflow-x:auto"><table class="loop-phases"><thead><tr>';
+    h += '<th>Name</th><th>Status</th><th>Duration</th><th>Stdout</th><th>Stderr</th>';
+    h += '</tr></thead><tbody>';
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var pr = ls.phaseResults[name];
+      var safe = 'lp-' + i;
+      h += '<tr>';
+      h += '<td>' + esc(name) + '</td>';
+      h += '<td>' + badgeHtml(pr.status) + '</td>';
+      h += '<td>' + durationStr(pr.durationMs) + '</td>';
+      h += '<td><button class="small" data-log-toggle="' + safe + '-out">toggle</button>'
+        + '<pre class="logs" id="' + safe + '-out" style="display:none">' + esc(pr.stdout || '') + '</pre></td>';
+      h += '<td><button class="small" data-log-toggle="' + safe + '-err">toggle</button>'
+        + '<pre class="logs" id="' + safe + '-err" style="display:none">' + esc(pr.stderr || '') + '</pre></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+  h += '</section>';
+  return h;
+}
+
 function liveHtml(state, loops) {
   var h = '';
 
@@ -756,6 +805,9 @@ function liveHtml(state, loops) {
   h += '<button class="danger" id="stopDaemonBtn">Stop Daemon</button>';
   h += '</div>';
   h += '</section>';
+
+  /* Loop (phase loop progress from STATE.md) */
+  h += loopCardHtml(state);
 
   /* Current task */
   h += '<section class="card">';
@@ -899,6 +951,19 @@ function bindLiveEvents(state) {
     taskInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') triggerBtn.click();
     });
+  }
+
+  /* Loop phase log expand/collapse */
+  var logToggles = document.querySelectorAll('[data-log-toggle]');
+  for (var k = 0; k < logToggles.length; k++) {
+    (function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.getAttribute('data-log-toggle'));
+        if (target) {
+          target.style.display = (target.style.display === 'none') ? 'block' : 'none';
+        }
+      });
+    })(logToggles[k]);
   }
 }
 
