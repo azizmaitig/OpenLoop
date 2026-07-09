@@ -6,7 +6,7 @@
  */
 
 import type { ServerWebSocket } from 'bun';
-import type { DaemonStatus, Task } from './types.js';
+import type { DaemonStatus, Task, LoopState } from './types.js';
 import type { TaskQueue } from './task-queue.js';
 import type { TriggerManager } from './triggers.js';
 import type { LoopOrchestrator } from './orchestrator.js';
@@ -16,7 +16,7 @@ import type { LoopOrchestrator } from './orchestrator.js';
  * Routes never touch Daemon internals directly.
  */
 export interface DaemonAPI {
-  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null };
+  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null; loopState: LoopState | null };
   stop(): void;
   isAuthorized(req: Request): boolean;
   isPaused(): Promise<boolean>;
