@@ -9,6 +9,10 @@ export interface PhaseDef {
     | { mcpServer: string; tool: string; prompt: string }
     | { provider: string; prompt: string };
   pluginHooks?: string[];
+  /** Optional post-failure recovery: run this command, then re-run the phase. */
+  healCommand?: string;
+  /** Max heal attempts before terminal failure. Defaults to 1 when healCommand set. */
+  maxRetries?: number;
 }
 
 export interface Judgment {
