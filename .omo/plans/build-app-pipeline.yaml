@@ -37,28 +37,39 @@ tasks:
   - id: planning
     command: >-
       opencode run "Read {{TARGET_DIR}}/.build/STATE.md if present, otherwise infer project
-      intent from the working directory. Write a concise product spec to
-      {{TARGET_DIR}}/.build/spec.md covering: goal, users, core features (MVP scope only),
-      out-of-scope, tech-stack recommendation, and acceptance criteria. Keep it under 400
-      lines. Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
+      intent from the working directory. This is a THROWAWAY hello-world app: a Vite +
+      React + TypeScript single-page application. Write a concise product spec to
+      {{TARGET_DIR}}/.build/spec.md covering: goal (a runnable hello-world SPA), users (n/a,
+      throwaway), core features (MVP scope only — e.g. a counter component that increments
+      on click, rendered with React + Vite, builds clean, `bun test`/vitest green),
+      out-of-scope (auth, routing, backend, persistence, payments), tech-stack recommendation
+      (Vite 5/6 + React 18/19 + TypeScript, vitest for tests), and acceptance criteria (npm
+      run build succeeds, tests pass, app renders the counter). Keep it under 400 lines.
+      Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 180000
 
   - id: research
     command: >-
       opencode run "Read {{TARGET_DIR}}/.build/spec.md. Research the recommended tech stack and
       the top 3-5 risks/unknowns for this MVP (library choices, integration gotchas, perf
-      ceilings). Write findings to {{TARGET_DIR}}/.build/research.md: for each risk give
-      evidence, a recommended approach, and a fallback. Do NOT write code. Exit 0 when the
-      file is written." --dir "{{TARGET_DIR}}"
+      ceilings). Use the websearch tool and web fetch for CURRENT library docs (React 18 vs 19,
+      Vite 5 vs 6, Bun vs npm, vitest setup) — evidence MUST come from fetched docs, NOT from
+      memory. Cite every source URL in research.md. Write findings to
+      {{TARGET_DIR}}/.build/research.md: for each risk give evidence (with source link), a
+      recommended approach, and a fallback. Do NOT write code. Exit 0 when the file is
+      written." --dir "{{TARGET_DIR}}"
     timeoutMs: 180000
 
   - id: design
     command: >-
       opencode run "Read {{TARGET_DIR}}/.build/spec.md and {{TARGET_DIR}}/.build/research.md.
-      Produce a concrete technical design in {{TARGET_DIR}}/.build/design.md: module/component
-      breakdown, data model, API surface, key algorithms, file layout, and a build/test
-      strategy. Also note any design decisions needing an ADR. Do NOT write application code.
-      Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
+      Produce a concrete technical design in {{TARGET_DIR}}/.build/design.md for the throwaway
+      Vite + React + TypeScript hello-world SPA (counter component): module/component
+      breakdown (App, Counter component, main entry), data model (local component state only),
+      API surface (none — no backend), key algorithms (increment handler), file layout
+      (index.html, src/main.tsx, src/App.tsx, src/Counter.tsx, vite.config.ts, vitest config),
+      and a build/test strategy (vite build + vitest). Also note any design decisions needing
+      an ADR. Do NOT write application code. Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 180000
 
   - id: design-critique
@@ -80,10 +91,13 @@ tasks:
   - id: code
     command: >-
       opencode run "Read {{TARGET_DIR}}/.build/design.md and {{TARGET_DIR}}/.build/spec.md.
-      Implement the MVP inside {{TARGET_DIR}} (work in a git worktree if one is provided via
-      --dir; otherwise create one with 'git worktree add' or commit to a feature branch).
-      Follow the design faithfully. NON-GOALS: do not add features absent from spec.md, do not
-      add auth/payments/secrets handling unless explicitly in spec, do not refactor unrelated
+      Implement the MVP (Vite + React + TypeScript hello-world SPA with a counter component)
+      inside {{TARGET_DIR}} (work in a git worktree if one is provided via --dir; otherwise
+      create one with 'git worktree add' or commit to a feature branch). Scaffold the Vite
+      project, create src/App.tsx + src/Counter.tsx (increment on click), src/main.tsx,
+      index.html, vite.config.ts, and a vitest test for the counter. Follow the design
+      faithfully. NON-GOALS: do not add features absent from spec.md, do not add
+      auth/payments/secrets handling unless explicitly in spec, do not refactor unrelated
       code, do not write tests here (that is the test stage). Write a unified diff summary to
       {{TARGET_DIR}}/.build/code.diff. Exit 0 when implementation + code.diff are written.
       Assumes the human has enabled L2 (source editing) before this run." --dir "{{TARGET_DIR}}"
@@ -97,9 +111,11 @@ tasks:
   - id: test
     command: >-
       opencode run "Run the project's documented build + test suite for {{TARGET_DIR}} (e.g.
-      'bun test' / 'npm test' / 'pytest'). Capture results to {{TARGET_DIR}}/.build/test.log.
-      Exit 0 only if build and tests pass; otherwise exit non-zero so the phase fails.
-      Do NOT modify application code — only run the suite." --dir "{{TARGET_DIR}}"
+      'npm run build' + 'vitest run' / 'bun test'). Capture results to
+      {{TARGET_DIR}}/.build/test.log. For the throwaway Vite/React app this means `vite build`
+      succeeds and the counter vitest test passes. Exit 0 only if build and tests pass;
+      otherwise exit non-zero so the phase fails. Do NOT modify application code — only run
+      the suite." --dir "{{TARGET_DIR}}"
     timeoutMs: 120000
 
   - id: review
@@ -120,7 +136,8 @@ tasks:
     command: >-
       opencode run "Read {{TARGET_DIR}}/.build/spec.md (acceptance criteria),
       {{TARGET_DIR}}/.build/test.log, and {{TARGET_DIR}}/.build/review.md. Judge whether the
-      built MVP satisfies the acceptance criteria and is shippable. Write the verdict to
+      built Vite/React hello-world MVP satisfies the acceptance criteria (builds clean, counter
+      test passes, app renders) and is shippable. Write the verdict to
       {{TARGET_DIR}}/.build/evaluate.md (ADVISORY — does not block the run). Exit 0 when the
       file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 120000
