@@ -76,3 +76,66 @@ tasks:
         You are a senior architecture reviewer. Stdout holds the design-critique.md content.
         Return JSON: { "passed": boolean (true=APPROVE, false=REVISE), "reason": "markdown
         report with P0-P2 issues and whether design meets spec", "confidence": 0.0-1.0 }.
+
+  - id: code
+    command: >-
+      opencode run "Read {{TARGET_DIR}}/.build/design.md and {{TARGET_DIR}}/.build/spec.md.
+      Implement the MVP inside {{TARGET_DIR}} (work in a git worktree if one is provided via
+      --dir; otherwise create one with 'git worktree add' or commit to a feature branch).
+      Follow the design faithfully. NON-GOALS: do not add features absent from spec.md, do not
+      add auth/payments/secrets handling unless explicitly in spec, do not refactor unrelated
+      code, do not write tests here (that is the test stage). Write a unified diff summary to
+      {{TARGET_DIR}}/.build/code.diff. Exit 0 when implementation + code.diff are written.
+      Assumes the human has enabled L2 (source editing) before this run." --dir "{{TARGET_DIR}}"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run "Re-read {{TARGET_DIR}}/.build/code.diff and the failing build/test output.
+      Apply the minimal fix to the MVP in {{TARGET_DIR}} and update {{TARGET_DIR}}/.build/code.diff.
+      Do not expand scope beyond the failing concern. Exit 0 when fixed." --dir "{{TARGET_DIR}}"
+    maxRetries: 3
+
+  - id: test
+    command: >-
+      opencode run "Run the project's documented build + test suite for {{TARGET_DIR}} (e.g.
+      'bun test' / 'npm test' / 'pytest'). Capture results to {{TARGET_DIR}}/.build/test.log.
+      Exit 0 only if build and tests pass; otherwise exit non-zero so the phase fails.
+      Do NOT modify application code — only run the suite." --dir "{{TARGET_DIR}}"
+    timeoutMs: 120000
+
+  - id: review
+    command: >-
+      opencode run "Read {{TARGET_DIR}}/.build/code.diff and {{TARGET_DIR}}/.build/design.md.
+      Perform a code review: correctness, security, readability, and adherence to the design.
+      Write findings to {{TARGET_DIR}}/.build/review.md with P0-P2 issues and a verdict.
+      Do NOT modify source. Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior code reviewer. Stdout holds review.md. Return JSON:
+        { "passed": boolean, "reason": "markdown review with P0-P2 issues and verdict",
+        "confidence": 0.0-1.0 }.
+
+  - id: evaluate
+    command: >-
+      opencode run "Read {{TARGET_DIR}}/.build/spec.md (acceptance criteria),
+      {{TARGET_DIR}}/.build/test.log, and {{TARGET_DIR}}/.build/review.md. Judge whether the
+      built MVP satisfies the acceptance criteria and is shippable. Write the verdict to
+      {{TARGET_DIR}}/.build/evaluate.md (ADVISORY — does not block the run). Exit 0 when the
+      file is written." --dir "{{TARGET_DIR}}"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a quality evaluator. Stdout holds evaluate.md. Return JSON:
+        { "passed": boolean, "reason": "markdown verdict vs acceptance criteria, gaps,
+        ship/no-ship recommendation", "confidence": 0.0-1.0 }.
+
+  - id: verify
+    command: >-
+      opencode run "Final non-LLM gate for {{TARGET_DIR}}: re-run build + the FULL test suite
+      and confirm exit 0. Also confirm {{TARGET_DIR}}/.build/code.diff, test.log, review.md,
+      and evaluate.md all exist. Exit 0 only if build+tests pass; otherwise exit non-zero.
+      This is the hard gate — no LLM judgment, command exit code decides pass/fail."
+      --dir "{{TARGET_DIR}}"
+    timeoutMs: 120000
