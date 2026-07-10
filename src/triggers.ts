@@ -54,6 +54,11 @@ export class CronTrigger {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastFired: number = 0;
 
+  /** Number of times this trigger has fired since creation. In-memory only. */
+  fireCount = 0;
+  /** ISO timestamp of the most recent fire. Undefined until first fire. */
+  lastFiredAt?: string;
+
   constructor(
     public readonly expression: string,
     public readonly onFire: () => void,
@@ -126,6 +131,8 @@ export class CronTrigger {
         const lastMinute = Math.floor(this.lastFired / 60_000);
         if (currentMinute !== lastMinute) {
           this.lastFired = now;
+          this.fireCount++;
+          this.lastFiredAt = new Date().toISOString();
           try { this.onFire(); } catch { /* ponytail: callback errors logged by caller */ }
         }
       }
@@ -173,6 +180,11 @@ export class FileWatchTrigger {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFiles = new Set<string>();
   private readonly pattern: string;
+
+  /** Number of times this trigger has fired since creation. In-memory only. */
+  fireCount = 0;
+  /** ISO timestamp of the most recent fire. Undefined until first fire. */
+  lastFiredAt?: string;
   private readonly debounceMs: number;
   private readonly processedDir: string;
 
@@ -219,8 +231,10 @@ export class FileWatchTrigger {
 
       try {
         mkdirSync(join(this.watchDir, this.processedDir), { recursive: true });
-        renameSync(fullPath, processedPath);
-        try { this.onTrigger(fullPath); } catch { /* ponytail: callback errors logged by caller */ }
+          renameSync(fullPath, processedPath);
+          this.fireCount++;
+          this.lastFiredAt = new Date().toISOString();
+          try { this.onTrigger(fullPath); } catch { /* ponytail: callback errors logged by caller */ }
       } catch {
         // File might have been removed before we processed it — skip silently
       }
@@ -296,11 +310,13 @@ export class TriggerManager {
     return this.triggers.find(t => t.id === id)?.trigger;
   }
 
-  list(): { id: string; type: string; running: boolean }[] {
+  list(): { id: string; type: string; running: boolean; fireCount: number; lastFiredAt?: string }[] {
     return this.triggers.map(t => ({
       id: t.id,
       type: t.trigger instanceof CronTrigger ? 'cron' : 'fileWatch',
       running: t.trigger.running,
+      fireCount: t.trigger.fireCount,
+      lastFiredAt: t.trigger.lastFiredAt,
     }));
   }
 

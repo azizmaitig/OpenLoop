@@ -270,7 +270,7 @@ describe("TriggerManager", () => {
   test("list returns registered triggers with type and running status", () => {
     manager.register("c1", new CronTrigger("* * * * *", () => {}));
     expect(manager.list()).toEqual([
-      { id: "c1", type: "cron", running: false },
+      { id: "c1", type: "cron", running: false, fireCount: 0, lastFiredAt: undefined },
     ]);
   });
 
