@@ -548,6 +548,41 @@ input[type=text]:focus {
   thead th, tbody td { padding: var(--space-1) var(--space-2); }
   .pagination { flex-wrap: wrap; }
 }
+
+/* ── Metrics tab ─────────────────────────────────────── */
+.metrics-cards { display: flex; gap: var(--space-4); margin-bottom: var(--space-4); }
+.stat-card {
+  flex: 1;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  text-align: center;
+}
+.stat-card .stat-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+}
+.stat-card .stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: var(--space-1);
+}
+.window-selector { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
+.window-selector button.active {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.chart-container { position: relative; min-height: 250px; }
+.note { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: var(--space-2); font-style: italic; }
+@media (max-width: 640px) {
+  .metrics-cards { flex-direction: column; }
+}
 </style>
 </head>
 <body>
@@ -557,6 +592,7 @@ input[type=text]:focus {
   <nav id="nav" aria-label="Main navigation">
     <a href="#/">Live</a>
     <a href="#/history">History</a>
+    <a href="#/metrics">Metrics</a>
   </nav>
   <span class="ws-indicator" id="wsIndicator">
     <span class="status-dot offline" id="wsDot"></span>
@@ -566,6 +602,7 @@ input[type=text]:focus {
 
 <main id="main" role="main"></main>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
 'use strict';
@@ -587,6 +624,7 @@ var currentRoute = '';
 var historyPage = 1;
 var historyFilter = '';
 var historySort = { col: 'createdAt', dir: 'desc' };
+var metricsWindow = '1h';
 
 /* ── Fetch wrapper ────────────────────────────────────── */
 function api(method, url, body) {
@@ -698,6 +736,7 @@ function updateNav(hash) {
     var href = links[i].getAttribute('href');
     if (hash === '#/' && href === '#/') { links[i].className = 'active'; }
     else if (hash === '#/history' && href === '#/history') { links[i].className = 'active'; }
+    else if (hash === '#/metrics' && href === '#/metrics') { links[i].className = 'active'; }
     else if (hash.indexOf('#/task/') === 0 && href === '#/history') { links[i].className = 'active'; }
     else { links[i].className = ''; }
   }
@@ -708,6 +747,8 @@ function renderRoute(hash) {
     renderLive();
   } else if (hash === '#/history') {
     renderHistory();
+  } else if (hash === '#/metrics') {
+    renderMetrics();
   } else if (hash.indexOf('#/task/') === 0) {
     var id = hash.replace('#/task/', '');
     renderTask(id);
@@ -1151,6 +1192,154 @@ function bindTaskEvents(data) {
         rerunBtn.textContent = 'Re-run';
       });
     });
+  }
+}
+
+/* ── Page: Metrics (#/metrics) ──────────────────────────────────────────── */
+function renderMetrics() {
+  $main.innerHTML = '<div class="loading">Loading...</div>';
+  var w = metricsWindow;
+  apiGet('/api/metrics?window=' + w).then(function (data) {
+    $main.innerHTML = metricsHtml(data, w);
+    bindMetricsEvents(data);
+  }).catch(function (e) {
+    $main.innerHTML = '<div class="card error-state">Failed to load metrics: ' + esc(e.message) + '</div>';
+  });
+}
+
+function metricsHtml(data, window) {
+  var tm = (data && data.taskMetrics) || {};
+  var bd = (data && data.budget) || {};
+  var tr = (data && data.triggers) || [];
+  var totalRuns = tm.totalRuns || 0;
+  var passCount = tm.passCount || 0;
+  var failCount = tm.failCount || 0;
+  var errorCount = tm.errorCount || 0;
+  var total = passCount + failCount + errorCount;
+  var passRate = total > 0 ? (passCount / total * 100).toFixed(1) : '0.0';
+
+  var budgetStatus = bd.status || 'ok';
+  var budgetColor = 'var(--color-text-brand)';
+  if (budgetStatus === 'exceeded') budgetColor = 'var(--color-error)';
+  else if (budgetStatus === 'warning') budgetColor = 'var(--color-warning)';
+
+  var h = '';
+
+  /* Stat cards */
+  h += '<div class="metrics-cards">';
+  h += '<div class="stat-card"><div class="stat-value">' + totalRuns + '</div><div class="stat-label">Total Runs</div></div>';
+  h += '<div class="stat-card"><div class="stat-value">' + passRate + '%</div><div class="stat-label">Pass Rate</div></div>';
+  h += '<div class="stat-card" style="border-color:' + budgetColor + ';color:' + budgetColor + '"><div class="stat-value">' + (bd.remaining != null ? bd.remaining : '-') + '</div><div class="stat-label">Budget Remaining</div></div>';
+  h += '</div>';
+
+  /* Window selector */
+  h += '<div class="window-selector">';
+  var windows = ['10m', '1h', '24h'];
+  for (var wi = 0; wi < windows.length; wi++) {
+    var w = windows[wi];
+    var active = w === window ? ' active' : '';
+    h += '<button class="small' + active + '" data-window="' + w + '">' + w + '</button>';
+  }
+  h += '</div>';
+
+  /* Chart section */
+  h += '<section class="card">';
+  h += '<h2>Task Distribution</h2>';
+  h += '<div class="chart-container"><canvas id="metricsChart"></canvas></div>';
+  h += '<p class="note">Note: Throughput time-series data not available from API (only single scalar ' + (tm.throughputTasksPerMin != null ? tm.throughputTasksPerMin.toFixed(2) : '-') + ' tasks/min). Showing pass/fail/error counts for the current window.</p>';
+  h += '</section>';
+
+  /* Trigger table */
+  h += '<section class="card">';
+  h += '<h2>Triggers</h2>';
+  if (tr.length === 0) {
+    h += '<p class="empty">No triggers configured</p>';
+  } else {
+    h += '<div style="overflow-x:auto"><table><thead><tr>';
+    h += '<th>ID</th><th>Type</th><th>Fire Count</th><th>Last Fired</th><th>Status</th>';
+    h += '</tr></thead><tbody>';
+    for (var j = 0; j < tr.length; j++) {
+      var tg = tr[j];
+      h += '<tr>';
+      h += '<td>' + esc(tg.id || '-') + '</td>';
+      h += '<td>' + badgeHtml(tg.type) + '</td>';
+      h += '<td>' + (tg.fireCount != null ? tg.fireCount : 0) + '</td>';
+      h += '<td>' + timeStr(tg.lastFiredAt) + '</td>';
+      h += '<td>' + badgeHtml(tg.running ? 'running' : 'idle') + '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+  h += '</section>';
+
+  return h;
+}
+
+function bindMetricsEvents(data) {
+  /* Window selector */
+  var btns = document.querySelectorAll('.window-selector button');
+  var i;
+  for (i = 0; i < btns.length; i++) {
+    (function (btn) {
+      btn.addEventListener('click', function () {
+        metricsWindow = btn.getAttribute('data-window');
+        renderMetrics();
+      });
+    })(btns[i]);
+  }
+
+  /* Chart — render with Chart.js or fallback to plain table */
+  var canvas = document.getElementById('metricsChart');
+  if (!canvas) return;
+
+  if (typeof Chart === 'undefined') {
+    var tm = (data && data.taskMetrics) || {};
+    var passCount = tm.passCount || 0;
+    var failCount = tm.failCount || 0;
+    var errorCount = tm.errorCount || 0;
+    var tp = tm.throughputTasksPerMin != null ? tm.throughputTasksPerMin.toFixed(2) : '-';
+    var container = canvas.parentNode;
+    container.innerHTML = '<p class="note">Chart library unavailable — showing table view</p>'
+      + '<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>'
+      + '<tr><td>Pass Count</td><td>' + passCount + '</td></tr>'
+      + '<tr><td>Fail Count</td><td>' + failCount + '</td></tr>'
+      + '<tr><td>Error Count</td><td>' + errorCount + '</td></tr>'
+      + '<tr><td>Throughput</td><td>' + tp + ' tasks/min</td></tr>'
+      + '</tbody></table>';
+    return;
+  }
+
+  var ctx = canvas.getContext('2d');
+  var passCount = tm.passCount || 0;
+  var failCount = tm.failCount || 0;
+  var errorCount = tm.errorCount || 0;
+
+  try {
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ['Pass', 'Fail', 'Error'],
+        datasets: [{
+          label: 'Task Outcome Counts',
+          data: [passCount, failCount, errorCount],
+          borderColor: 'var(--color-text-brand)',
+          backgroundColor: 'rgba(0,255,136,0.1)',
+          tension: 0.1,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#e2e4ea' } } },
+        scales: {
+          x: { ticks: { color: '#969ba8' }, grid: { color: '#282c35' } },
+          y: { beginAtZero: true, ticks: { color: '#969ba8' }, grid: { color: '#282c35' } }
+        }
+      }
+    });
+  } catch (e) {
+    /* Chart init failed — fallback is handled by the parent */
   }
 }
 
