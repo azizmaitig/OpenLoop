@@ -14,6 +14,10 @@ function fakeCtx(overrides?: Partial<TaskContext>): TaskContext {
     getState: () => ({ status: 'running' }),
     isPaused: async () => false,
     broadcast: () => {},
+    callLLM: async () => { throw new Error('no LLM in unit test'); },
+    isSafeCommand,
+    saveTaskHistory: async () => '',
+    updateStateMd: async () => {},
     ...overrides,
   };
 }

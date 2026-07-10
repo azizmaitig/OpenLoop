@@ -126,7 +126,7 @@ export async function evalWithLlm(
     const parsed = parseJsonResponse(text);
     if (!parsed) return undefined;
     return {
-      passed: Boolean(parsed.passed),
+      passed: typeof parsed.passed === 'boolean' ? parsed.passed : false,
       reason: String(parsed.reason || 'LLM evaluation'),
       confidence: Number(parsed.confidence) || 0.5,
     };

@@ -5,6 +5,7 @@ import {
   evalWithLlm,
   exitCodeJudgment,
 } from './eval-core.js';
+import { executeMcpPhase } from './mcp.js';
 
 /**
  * Evaluate a phase result using semantic LLM analysis or exit-code fallback.
@@ -66,8 +67,6 @@ export async function evaluatePhase(
       llm: { mcpServer: mcpLlm.mcpServer, tool: mcpLlm.tool, prompt },
     };
 
-    // Import dynamically to avoid circular dependency
-    const { executeMcpPhase } = await import('./mcp.js');
     const llmResult = await executeMcpPhase(evalPhase);
 
     if (llmResult.status === 'pass' && llmResult.stdout) {

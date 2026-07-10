@@ -27,6 +27,12 @@ function mockAPI(overrides?: Partial<DaemonAPI>): DaemonAPI {
     isPaused: async () => false,
     broadcast: () => {},
     maybeProcessQueue: () => {},
+    callLLM: async () => 'mock-llm-response',
+    saveTaskHistory: async () => '',
+    readTaskHistory: async () => null,
+    listTaskHistory: async () => ({ tasks: [], total: 0, page: 1, pageSize: 20 }),
+    updateStateMd: async () => {},
+    isSafeCommand: (cmd: string) => !/[;&|`$\n\r]/.test(cmd),
     taskQueue,
     orchestrator,
     triggerManager,
@@ -166,5 +172,56 @@ describe("routes — createFetchHandler", () => {
       body: JSON.stringify({ paused: "yes" }),
     }));
     expect(res.status).toBe(400);
+  });
+
+  // ── Seam coverage: routes reach LLM / history / state purely through DaemonAPI ──
+
+  test("POST /api/llm calls api.callLLM and returns the response", async () => {
+    let called = false;
+    const handler = createFetchHandler(mockAPI({
+      callLLM: async () => { called = true; return "llm-out"; },
+    }));
+    const res = await handler(new Request("http://test/api/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "hi" }),
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(called).toBe(true);
+    expect(body.response).toBe("llm-out");
+  });
+
+  test("POST /api/llm with empty prompt returns 400", async () => {
+    const handler = createFetchHandler(mockAPI());
+    const res = await handler(new Request("http://test/api/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "   " }),
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /api/history calls api.listTaskHistory", async () => {
+    let called = false;
+    const handler = createFetchHandler(mockAPI({
+      listTaskHistory: async () => { called = true; return { tasks: [], total: 0, page: 2, pageSize: 5 }; },
+    }));
+    const res = await handler(new Request("http://test/api/history?page=2&pageSize=5"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(called).toBe(true);
+    expect(body.page).toBe(2);
+    expect(body.pageSize).toBe(5);
+  });
+
+  test("GET /api/tasks/:id calls api.readTaskHistory and 404s when missing", async () => {
+    let called = false;
+    const handler = createFetchHandler(mockAPI({
+      readTaskHistory: async () => { called = true; return null; },
+    }));
+    const res = await handler(new Request("http://test/api/tasks/ghost"));
+    expect(res.status).toBe(404);
+    expect(called).toBe(true);
   });
 });

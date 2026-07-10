@@ -16,9 +16,10 @@ import type { Plugin } from './plugins.js';
 import { getPlanDoc } from './plan-executor.js';
 import { saveCheckpoint, clearCheckpoint, loadCheckpoint, hasValidCheckpoint } from './checkpoint.js';
 import { evaluatePhase } from './evaluate.js';
-import { executePhaseGroup } from './execute-phases.js';
+import { runLoopBody } from './loop-core.js';
 import { onPhaseFailed, onLoopComplete } from './memory-hooks.js';
-import { writeBothStates, currentState } from './state-writer.js';
+import { writeBothStates, setCurrentState } from './state.js';
+import { applyTransition } from './transition.js';
 import type { LoopConfig, LoopState, LoopResult, PhaseDef, PhaseResult, Judgment, PlanYamlTask } from './types.js';
 
 // ── Transition resolver ──────────────────────────────────────────────────────
@@ -129,7 +130,7 @@ function resolveHardcoded(allPassed: boolean, iteration: number, maxIterations: 
 async function runLoop(config: LoopConfig): Promise<number> {
   const sm = new StateMachine();
   let state = createInitialState(config);
-  currentState.value = state;
+  setCurrentState(state);
 
   // Load plugins once (v2: no plugins → v1 behavior)
   const plugins = await loadPlugins(config);
@@ -185,66 +186,39 @@ async function runLoop(config: LoopConfig): Promise<number> {
 
   for (let i = 0; i < config.maxIterations; i++) {
     try {
-      state.iteration = i + 1;
-      currentState.value = state;
-
-      // ── Transition to RUN ──────────────────────────────────────────────────
-      sm.transition('RUN');
-      state.currentState = 'run';
-      await writeBothStates(state);
-
-      // ── Execute each phase ─────────────────────────────────────────────────
-      const phaseResult = await executePhaseGroup(
-        {
-          config,
-          plugins,
-          writeState: writeBothStates,
-          onPhaseFailed: (p, r) => onPhaseFailed(p, r, config),
-          planPath: config.planPath,
-          getPlanDoc,
-          logPath: resolve('loop-run-log.md'),
-        },
+      const result = await runLoopBody({
+        sm,
         state,
-        state.iteration,
-      );
-      allPassed = phaseResult.allPassed;
-      state = phaseResult.state;
-      currentState.value = state;
+        config,
+        plugins,
+        iteration: i + 1,
+        writeState: writeBothStates,
+        onPhaseFailed: (p, r) => onPhaseFailed(p, r, config),
+        planPath: config.planPath,
+        getPlanDoc,
+        logPath: resolve('loop-run-log.md'),
+        // resolveTransition honors maxIterations + pass/fail (0-based index i).
+        decideEvent: (passed, postVerifyState) => resolveTransition(sm, config, postVerifyState, i, passed),
+      });
+      state = result.state;
+      allPassed = result.allPassed;
 
-      // ── Transition to VERIFY ───────────────────────────────────────────────
-      sm.transition('VERIFY');
-      state.currentState = 'verify';
-      currentState.value = state;
-      await writeBothStates(state);
-
-      // ── Decide next state ──────────────────────────────────────────────────
-      const newEvent = await resolveTransition(sm, config, state, i, allPassed);
-      sm.transition(newEvent);
-
-      if (newEvent === 'LOOP') {
-        state.currentState = 'init';
-        state.phaseResults = {};
-        currentState.value = state;
+      if (result.event === 'LOOP') {
         console.log(`\n[${state.iteration}/${config.maxIterations}] All passed — looping\n`);
-      } else if (newEvent === 'COMPLETE') {
-        state.currentState = 'done';
-        currentState.value = state;
+      } else if (result.event === 'COMPLETE') {
         console.log(`\nLoop COMPLETE — all phases passed`);
-      } else if (newEvent === 'FAILED') {
-        state.currentState = 'done';
-        currentState.value = state;
+      } else if (result.event === 'FAILED') {
         console.log(`\nLoop FAILED — some phases did not pass`);
         break;
-      } else if (newEvent === 'ABORT') {
-        state.currentState = 'done';
-        currentState.value = state;
+      } else if (result.event === 'ABORT') {
         console.log(`\nLoop ABORTED`);
         break;
       }
     } catch (err) {
-      state.currentState = 'done';
-      state.errors.push(`Unhandled error in iteration ${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
-      currentState.value = state;
+      const msg = `Unhandled error in iteration ${i + 1}: ${err instanceof Error ? err.message : String(err)}`;
+      state = applyTransition('ABORT', state, sm);
+      state.errors.push(msg);
+      setCurrentState(state);
       await writeBothStates(state).catch(() => {});
       console.error(`[agent-loop] Fatal error in iteration ${i + 1}:`, err);
       break;

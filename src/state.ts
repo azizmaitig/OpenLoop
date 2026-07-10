@@ -132,3 +132,34 @@ export async function readPauseState(path: string): Promise<boolean> {
     return false;
   }
 }
+
+// ── JSON state persistence (folded from state-writer.ts) ─────────────────────
+
+import { resolve } from 'node:path';
+
+// ponytail: hardcoded path, make configurable when multi-project support needed
+const OUTPUT_DIR = resolve('_agent-loop-output');
+
+// ── Current state ref (replaces object-wrapper pattern) ────────────────────
+
+let _currentState: LoopState | null = null;
+
+export function getCurrentState(): LoopState | null {
+  return _currentState;
+}
+
+export function setCurrentState(state: LoopState | null): void {
+  _currentState = state;
+}
+
+// ── JSON state persistence ──────────────────────────────────────────────────
+
+export async function writeBothStates(state: LoopState): Promise<void> {
+  try {
+    await writeState(resolve(OUTPUT_DIR, 'STATE.md'), state);
+  } catch (err) {
+    console.error('[state] Failed to write STATE.md:', err);
+  }
+}
+
+export { OUTPUT_DIR };

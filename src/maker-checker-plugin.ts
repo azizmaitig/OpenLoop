@@ -1,50 +1,34 @@
 import type { PhaseDef, PhaseResult, LoopState, LoopResult, Judgment } from './types.js';
 import type { Plugin } from './plugins.js';
-import { buildLlmConfig, parseJsonResponse } from './eval-core.js';
-import { callLLM } from './llm.js';
+import { buildLlmConfig, buildEvalPrompt, evalWithLlm } from './eval-core.js';
 
 export interface MakerCheckerConfig {
   /** Enable the maker/checker plugin. Default: false */
   enabled?: boolean;
-  /** LLM model for the maker phase. Optional. */
-  makerModel?: string;
-  /** LLM model for the checker phase. Optional. */
-  checkerModel?: string;
-  /** If true, checker auto-approves without blocking. Default: false */
-  autoApprove?: boolean;
   /** Max retries when checker fails. Default: 2 */
   maxCheckerRetries?: number;
 }
 
 /**
- * Build an AI-verification prompt from the maker phase result, call the LLM,
- * and return a Judgment.  Falls back to undefined (no AI verdict) on any error
- * so the loop's existing retry logic kicks in unchanged.
+ * Evaluate a phase result using the LLM.
+ * Delegates to eval-core's evalWithLlm which handles config building,
+ * prompt construction, LLM call, and JSON parsing.
  */
 async function runAiVerification(result: PhaseResult): Promise<Judgment | undefined> {
   const config = buildLlmConfig();
   if (!config) return undefined;
 
-  const prompt = [
-    'Evaluate if this task passed. Return JSON: {"passed": boolean, "reason": string}.',
-    'Task output:',
-    `[stdout]\n${result.stdout}`,
-    `[stderr]\n${result.stderr}`,
-    `[exitCode] ${result.exitCode}`,
-  ].join('\n');
+  const prompt = buildEvalPrompt({
+    phaseName: 'verification',
+    command: '',
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    expectedExitCode: 0,
+    instruction: 'Return JSON: {"passed": boolean, "reason": string}',
+  });
 
-  try {
-    const text = await callLLM(config, prompt);
-    const parsed = parseJsonResponse(text);
-
-    if (parsed && typeof parsed.passed === 'boolean') {
-      return { passed: parsed.passed, reason: String(parsed.reason ?? ''), confidence: 0.8 };
-    }
-
-    return undefined;
-  } catch {
-    return undefined;
-  }
+  return evalWithLlm(config, prompt);
 }
 
 /**

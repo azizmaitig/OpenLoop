@@ -7,15 +7,11 @@
  * @module task-processor
  */
 
-import { resolve } from 'node:path';
 import type { Task, LLMConfig, LLMProvider } from './types.js';
-import { callLLM } from './llm.js';
 import { TaskQueue } from './task-queue.js';
-import { saveTaskHistory } from './history.js';
-import { updateStateMd } from './state.js';
 import type { StateMdFrontmatter } from './state.js';
 import { checkBudget } from './budget.js';
-import { isSafeCommand, runCommand } from './shell.js';
+import { runCommand } from './shell.js';
 import { Guard, RecoveryStrategy, type RecoveryContext } from './recovery.js';
 
 /**
@@ -28,6 +24,10 @@ export interface TaskContext {
   getState: () => { status: string };
   isPaused: () => Promise<boolean>;
   broadcast: (type: string, data: unknown) => void;
+  callLLM: (config: LLMConfig, prompt: string, system?: string) => Promise<string>;
+  isSafeCommand: (command: string) => boolean;
+  saveTaskHistory: (task: Task) => Promise<string>;
+  updateStateMd: (fm: StateMdFrontmatter) => Promise<void>;
 }
 
 /**
@@ -50,7 +50,7 @@ export async function executeTask(task: Task, ctx: TaskContext): Promise<void> {
         model: Bun.env.LLM_MODEL ?? 'gpt-4o',
       };
       const llmInfo = task.llm as { prompt: string; system?: string; mcpServer?: string; tool?: string };
-      const response = await callLLM(config, llmInfo.prompt, llmInfo.system);
+      const response = await ctx.callLLM(config, llmInfo.prompt, llmInfo.system);
       taskQueue.complete(task.id, {
         exitCode: 0,
         stdout: response,
@@ -65,7 +65,7 @@ export async function executeTask(task: Task, ctx: TaskContext): Promise<void> {
     return;
   }
 
-  if (!isSafeCommand(task.command)) {
+  if (!ctx.isSafeCommand(task.command)) {
     RecoveryStrategy.failTerminal(recovery, task, 'Command rejected: unsafe shell metacharacters detected');
     return;
   }
@@ -126,28 +126,26 @@ export async function executeTask(task: Task, ctx: TaskContext): Promise<void> {
 export async function processQueue(ctx: TaskContext): Promise<number> {
   const { taskQueue, baseDir, getState, isPaused, broadcast } = ctx;
 
-  // Budget guard (pre-execution): report-only / exceeded budgets block execution.
-  // This is a Guard outcome, not a recovery (see ADR-0009) — the tasks never
-  // ran, so there is no result to recover. report_only cancels queued tasks
-  // (cancel-report); exceeded stops accepting new work (returns 0, no cancel).
+  // Single pre-execution gate (ADR-0009): budget, pause, and command safety all
+  // flow through Guard.shouldRun — no inline budget branching. A "no" decision
+  // means tasks never run. isPaused is stubbed here so the budget gate only
+  // gates budget; pause is still checked per-iteration in the loop below.
   const budget = await checkBudget(baseDir);
   const pct = Math.round((budget.runsToday / budget.cap) * 100);
-  if (budget.status === 'exceeded') {
-    console.error(`[daemon] Daily run cap exceeded (${budget.runsToday}/${budget.cap}), stopping`);
-    return 0;
-  }
-  if (budget.status === 'report_only') {
+  const sentinel: Task = { id: '__guard_probe__', command: '', lifecycle: 'queued', createdAt: '' };
+  const decision = await Guard.shouldRun(
+    { baseDir, isPaused: async () => false, isSafeCommand: ctx.isSafeCommand },
+    sentinel,
+    budget.status,
+  );
+
+  if (!decision.run) {
+    if (budget.status === 'exceeded') {
+      console.error(`[daemon] Daily run cap exceeded (${budget.runsToday}/${budget.cap}), stopping`);
+      return 0;
+    }
+    // report_only → cancel-report: cancel all queued tasks (they never ran).
     console.error(`[daemon] Run budget at ${pct}% (${budget.runsToday}/${budget.cap}), report-only mode`);
-
-    // Derive the cancel-report reason through the Guard seam so the budget
-    // gate and the per-task guard share one decision source.
-    const sentinel: Task = { id: '__guard_probe__', command: '', lifecycle: 'queued', createdAt: '' };
-    const decision = await Guard.shouldRun(
-      { baseDir, isPaused: async () => false, isSafeCommand },
-      sentinel,
-      'report_only',
-    );
-
     let cancelledCount = 0;
     while (getState().status === 'running') {
       const task = taskQueue.dequeue();
@@ -155,7 +153,7 @@ export async function processQueue(ctx: TaskContext): Promise<number> {
       const cancelled = taskQueue.cancel(task.id);
       if (cancelled) {
         cancelled.error = decision.reason ?? 'budget: report-only mode, task skipped';
-        saveTaskHistory(baseDir, cancelled).catch(() => {});
+        ctx.saveTaskHistory(cancelled).catch(() => {});
         cancelledCount++;
       }
     }
@@ -178,10 +176,9 @@ export async function processQueue(ctx: TaskContext): Promise<number> {
 
     // Save history (best-effort, non-blocking)
     // ponytail: use task directly — taskQueue.get() returns undefined after complete() nulls currentTask
-    saveTaskHistory(baseDir, task).catch(() => {});
+    ctx.saveTaskHistory(task).catch(() => {});
 
     // Auto-update STATE.md frontmatter after each task
-    const stateMdPath = resolve(baseDir, 'STATE.md');
     const paused = await isPaused();
     const fm: StateMdFrontmatter = {
       last_run: new Date().toISOString(),
@@ -193,7 +190,7 @@ export async function processQueue(ctx: TaskContext): Promise<number> {
       task_count: taskQueue.history.length,
       paused: paused || undefined,
     };
-    updateStateMd(stateMdPath, fm).catch(() => {});
+    ctx.updateStateMd(fm).catch(() => {});
     processed++;
   }
 

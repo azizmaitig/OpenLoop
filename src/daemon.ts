@@ -1,15 +1,23 @@
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { ServerWebSocket } from 'bun';
-import type { DaemonStatus } from './types.js';
+import type { DaemonStatus, LoopConfig, LoopState, Task, LLMConfig, HistoryEntry, HistoryListResponse } from './types.js';
 import { TaskQueue } from './task-queue.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { LoopOrchestrator } from './orchestrator.js';
 import { processQueue } from './task-processor.js';
 import type { TaskContext } from './task-processor.js';
-import { readPauseState } from './state.js';
+import { readPauseState, writeBothStates, setCurrentState, createInitialState, updateStateMd } from './state.js';
+import type { StateMdFrontmatter } from './state.js';
 import { createFetchHandler } from './routes.js';
 import type { DaemonAPI } from './daemon-api.js';
+import { callLLM } from './llm.js';
+import { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js';
+import { isSafeCommand } from './shell.js';
+import { StateMachine } from './state-machine.js';
+import { applyTransition } from './transition.js';
+import { loadPlugins } from './plugins.js';
+import { runLoopBody } from './loop-core.js';
 
 export class Daemon {
   private _status: DaemonStatus;
@@ -84,6 +92,99 @@ export class Daemon {
       queueLength: this.taskQueue.length,
       currentTask: this.taskQueue.current,
     };
+  }
+
+  // ── Seam methods (DaemonAPI) ─────────────────────────────────────────────────
+  // Routes and the task processor reach every side-effecting capability ONLY
+  // through these — they never import the underlying modules directly.
+
+  async callLLM(config: LLMConfig, prompt: string, system?: string): Promise<string> {
+    return callLLM(config, prompt, system);
+  }
+
+  saveTaskHistory(task: Task): Promise<string> {
+    return saveTaskHistory(this.baseDir, task);
+  }
+
+  async readTaskHistory(taskId: string): Promise<HistoryEntry | null> {
+    return readTaskHistory(this.baseDir, taskId);
+  }
+
+  listTaskHistory(page: number = 1, pageSize: number = 20): Promise<HistoryListResponse> {
+    return listTaskHistory(this.baseDir, page, pageSize);
+  }
+
+  async updateStateMd(fm: StateMdFrontmatter): Promise<void> {
+    await updateStateMd(resolve(this.baseDir, 'STATE.md'), fm);
+  }
+
+  isSafeCommand(command: string): boolean {
+    return isSafeCommand(command);
+  }
+
+  /**
+   * Run one daemon loop tick: execute all phases, update state, loop back.
+   * Mimics daemon-runner.ts's tick logic but as a Daemon class method.
+   * Used by the `--daemon` CLI flag when starting with phase config instead of task queue.
+   */
+  async runIntervalTick(config: LoopConfig): Promise<void> {
+    const sm = new StateMachine();
+    let state = createInitialState(config);
+    setCurrentState(state);
+
+    const intervalMs = config.daemon?.intervalMs ?? 60000;
+
+    await writeBothStates(state);
+
+    // Load plugins once
+    const plugins = await loadPlugins(config);
+
+    console.log(`Daemon tick started (interval: ${intervalMs}ms)`);
+
+    let iterationCount = 0;
+    let running = true;
+
+    const shutdown = () => {
+      if (!running) return;
+      running = false;
+      state = applyTransition('ABORT', state, sm);
+      writeBothStates(state).catch(() => {});
+    };
+
+    const prevSigInt = process.listeners('SIGINT').slice();
+    const prevSigTerm = process.listeners('SIGTERM').slice();
+    process.removeAllListeners('SIGINT');
+    process.removeAllListeners('SIGTERM');
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+
+    // Shared per-iteration body. Daemon policy: always LOOP (ignores pass/fail,
+    // runs until SIGINT); iteration count shown as ∞.
+    const runTick = async (): Promise<void> => {
+      if (!running) return;
+      iterationCount++;
+      // ponytail: daemon ignores iteration count, always shows ∞
+      const fakeConfig = { ...config, maxIterations: Infinity };
+      const result = await runLoopBody({
+        sm,
+        state,
+        config: fakeConfig,
+        plugins,
+        iteration: iterationCount,
+        writeState: writeBothStates,
+        onPhaseFailed: () => {},
+        logPath: resolve('loop-run-log.md'),
+        decideEvent: () => 'LOOP',
+      });
+      state = result.state;
+      console.log(`Daemon iteration ${iterationCount} complete`);
+    };
+
+    await runTick();
+    const intervalId = setInterval(runTick, intervalMs);
+    intervalId.unref();
+
+    await new Promise<void>(() => {});
   }
 
   async start(): Promise<void> {
@@ -214,6 +315,10 @@ export class Daemon {
         getState: () => this._status,
         isPaused: () => this.isPaused(),
         broadcast: (type, data) => this.broadcast(type, data),
+        callLLM: (config, prompt, system) => this.callLLM(config, prompt, system),
+        isSafeCommand: (command) => this.isSafeCommand(command),
+        saveTaskHistory: (task) => this.saveTaskHistory(task),
+        updateStateMd: (fm) => this.updateStateMd(fm),
       };
       await processQueue(ctx);
     } finally {

@@ -4,7 +4,8 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "prototype:feedback": "bun run src/_prototype-feedback-controller.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

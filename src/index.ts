@@ -11,8 +11,6 @@ export { executeMcpPhase } from './mcp.js';
 export { evaluatePhase } from './evaluate.js';
 export { loadPlugins, executeHooks, executeBeforeLoop, executeAfterLoop } from './plugins.js';
 export type { Plugin, HookContext } from './plugins.js';
-export { startApiServer } from './api.js';
-export type { ApiServer, ApiHandlers } from './api.js';
 export { Daemon } from './daemon.js';
 export { TaskQueue } from './task-queue.js';
 export { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js';

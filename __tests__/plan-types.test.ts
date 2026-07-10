@@ -1,62 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import type { PlanYamlTask, PlanYamlDoc, PlanContext } from "../src/types.js";
 
-describe("PlanYamlTask", () => {
-  test("constructs with minimal fields", () => {
-    const task: PlanYamlTask = { id: "test", command: "echo hello" };
-    expect(task.id).toBe("test");
-    expect(task.command).toBe("echo hello");
-  });
-
-  test("constructs with timeoutMs", () => {
-    const task: PlanYamlTask = { id: "scan", command: "ls", timeoutMs: 5000 };
-    expect(task.timeoutMs).toBe(5000);
-  });
-
-  test("constructs with optional llm config", () => {
+describe("plan type shapes", () => {
+  test("PlanYamlTask, PlanYamlDoc, and PlanContext compose correctly at runtime", () => {
     const task: PlanYamlTask = {
-      id: "llm-task",
-      command: "analyze",
-      llm: { mcpServer: "playwright", tool: "snapshot", prompt: "check page" },
+      id: "build",
+      command: "npm run build",
+      timeoutMs: 30000,
+      llm: { mcpServer: "fs", tool: "write", prompt: "build" },
     };
-    expect(task.llm?.mcpServer).toBe("playwright");
-    expect(task.llm?.tool).toBe("snapshot");
-    expect(task.llm?.prompt).toBe("check page");
-  });
+    expect(task.id).toBe("build");
+    expect(task.command).toBe("npm run build");
+    expect(task.timeoutMs).toBe(30000);
+    expect(task.llm?.mcpServer).toBe("fs");
+    expect(task.llm?.tool).toBe("write");
+    expect(task.llm?.prompt).toBe("build");
 
-  test("llm fields are all optional", () => {
-    const task: PlanYamlTask = {
-      id: "partial",
-      command: "run",
-      llm: { prompt: "just a prompt" },
-    };
-    expect(task.llm?.prompt).toBe("just a prompt");
-    expect(task.llm?.mcpServer).toBeUndefined();
-    expect(task.llm?.tool).toBeUndefined();
-  });
-});
+    const doc: PlanYamlDoc = { planName: "ci", tasks: [task] };
+    expect(doc.planName).toBe("ci");
+    expect(doc.tasks).toHaveLength(1);
+    expect(doc.tasks[0].id).toBe("build");
 
-describe("PlanYamlDoc", () => {
-  test("constructs with planName and tasks", () => {
-    const doc: PlanYamlDoc = {
-      planName: "test-plan",
-      tasks: [
-        { id: "t1", command: "echo first" },
-        { id: "t2", command: "echo second", timeoutMs: 3000 },
-      ],
-    };
-    expect(doc.planName).toBe("test-plan");
-    expect(doc.tasks).toHaveLength(2);
-    expect(doc.tasks[0].id).toBe("t1");
-  });
-});
+    const ctx: PlanContext = { planPath: "/tmp/ci.yaml", plan: doc };
+    expect(ctx.planPath).toBe("/tmp/ci.yaml");
+    expect(ctx.plan.planName).toBe("ci");
 
-describe("PlanContext", () => {
-  test("constructs with planPath and plan", () => {
-    const task: PlanYamlTask = { id: "x", command: "y" };
-    const doc: PlanYamlDoc = { planName: "p", tasks: [task] };
-    const ctx: PlanContext = { planPath: "/tmp/plan.yaml", plan: doc };
-    expect(ctx.planPath).toBe("/tmp/plan.yaml");
-    expect(ctx.plan.planName).toBe("p");
+    // llm fields are all optional
+    const minimal: PlanYamlTask = { id: "x", command: "y" };
+    expect(minimal.llm).toBeUndefined();
+    expect(minimal.timeoutMs).toBeUndefined();
   });
 });

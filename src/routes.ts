@@ -4,15 +4,10 @@
  * All routes receive a DaemonAPI seam — they never touch Daemon internals.
  */
 
-import { resolve } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import type { DaemonAPI } from './daemon-api.js';
 import type { LLMConfig, LLMProvider } from './types.js';
-import { callLLM } from './llm.js';
-import { readTaskHistory, listTaskHistory } from './history.js';
-import { updateStateMd } from './state.js';
 import type { StateMdFrontmatter } from './state.js';
-import { isSafeCommand } from './shell.js';
 
 /**
  * Register all HTTP/WS routes on a Bun.serve server config.
@@ -59,7 +54,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
         if (!body || typeof body.command !== 'string' || body.command.trim().length === 0) {
           return Response.json({ error: 'command is required' }, { status: 400 });
         }
-        if (!isSafeCommand(body.command)) {
+        if (!api.isSafeCommand(body.command)) {
           return Response.json({ error: 'command rejected: unsafe shell metacharacters' }, { status: 400 });
         }
         const task = api.taskQueue.enqueue(body.command, {
@@ -78,7 +73,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
     if (url.pathname === '/api/history' && req.method === 'GET') {
       const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
       const pageSize = Math.max(1, Math.min(100, parseInt(url.searchParams.get('pageSize') ?? '20', 10) || 20));
-      const result = await listTaskHistory(api.baseDir, page, pageSize);
+      const result = await api.listTaskHistory(page, pageSize);
       return Response.json(result);
     }
 
@@ -86,7 +81,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
     const tasksMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (tasksMatch && req.method === 'GET') {
       const taskId = tasksMatch[1];
-      const entry = await readTaskHistory(api.baseDir, taskId);
+      const entry = await api.readTaskHistory(taskId);
       if (!entry) {
         return Response.json({ error: 'task not found' }, { status: 404 });
       }
@@ -205,7 +200,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
           endpoint: Bun.env.LLM_ENDPOINT || undefined,
           temperature: body.temperature,
         };
-        const response = await callLLM(config, body.prompt, body.system);
+        const response = await api.callLLM(config, body.prompt, body.system);
         return Response.json({ response, model: config.model });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -229,7 +224,6 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
         if (typeof body.paused !== 'boolean') {
           return Response.json({ error: 'paused must be a boolean' }, { status: 400 });
         }
-        const stateMdPath = resolve(api.baseDir, 'STATE.md');
         const fm: StateMdFrontmatter = {
           last_run: new Date().toISOString(),
           current_state: api.getState().status,
@@ -240,7 +234,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
           task_count: 0,
           paused: body.paused,
         };
-        await updateStateMd(stateMdPath, fm);
+        await api.updateStateMd(fm);
         // If unpausing, kick the queue to resume processing
         if (!body.paused) {
           setTimeout(() => api.maybeProcessQueue(), 0);
