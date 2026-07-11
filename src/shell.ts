@@ -109,34 +109,29 @@ export async function runCommand(command: string, opts?: RunOptions): Promise<Ru
   const startTime = Date.now();
   const { cmd: args, shell, cleanup } = buildShellArgs(command);
 
-  const controller = new AbortController();
-  const timeout = opts?.timeoutMs && opts.timeoutMs > 0
-    ? setTimeout(() => controller.abort(), opts.timeoutMs)
-    : undefined;
-
   try {
-    const proc = Bun.spawn(args, {
+    // Use spawnSync to work around Bun bug #24690: Bun.spawn with stdout:'pipe'
+    // returns empty output inside `bun test` on GitHub Actions.
+    const proc = Bun.spawnSync(args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      signal: controller.signal,
       cwd: opts?.cwd,
-      shell,
+      env: { ...process.env },
     });
-
-    const [stdout, stderr] = await Promise.all([
-      Bun.readableStreamToText(proc.stdout),
-      Bun.readableStreamToText(proc.stderr),
-    ]);
-    const exitCode = await proc.exited;
 
     cleanup?.();
 
     return {
-      exitCode,
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
+      exitCode: proc.exitCode,
+      stdout: proc.stdout?.toString().trim() ?? '',
+      stderr: proc.stderr?.toString().trim() ?? '',
       durationMs: Date.now() - startTime,
     };
-  } finally {
-    if (timeout) clearTimeout(timeout);
+  } catch (err) {
+    return {
+      exitCode: -1,
+      stdout: '',
+      stderr: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startTime,
+    };
   }
 }
