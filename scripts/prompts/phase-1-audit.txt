@@ -1,0 +1,11 @@
+Task: Audit the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app and set up design context.
+
+STEP 1 — Init impeccable design context: cd D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app and run: node D:\projects\obsidian\second brain\.opencode\skills\impeccable\scripts\context.mjs If it returns NO_PRODUCT_MD, follow the init reference to create PRODUCT.md.
+
+STEP 2 — Audit current design: Load the impeccable skill. Run /impeccable audit src/App.css and /impeccable audit src/index.css. Check for: contrast failures (<4.5:1 body text), hardcoded values (magic numbers), missing CSS variables, dark mode gaps, responsive breakpoint issues. Document findings in a DESIGN-AUDIT.md file.
+
+STEP 3 — Create DESIGN.md: Run /impeccable document to generate a DESIGN.md from the existing code, capturing the current design tokens and visual system.
+
+STEP 4 — Critique: Run /impeccable critique src/App.tsx to get heuristic UX scoring.
+
+Write all findings to calendar-app/DESIGN-AUDIT.md and calendar-app/DESIGN.md. Do NOT modify any CSS or component source files in this step — only create audit/documentation files. Output a summary of findings when done.

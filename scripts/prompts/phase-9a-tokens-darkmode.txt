@@ -1,0 +1,15 @@
+Task: Final-polish pass — design tokens & dark mode consistency across calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load the impeccable skill. This is phase 9a of the calendar design loop (finish-only). Phases 1–8 and 10 are already complete; only final-polish remains.
+
+SCOPE (do NOT re-do prior phases — only these two concerns):
+1. Verify all CSS variables defined in src/index.css / src/App.css are used consistently across every component. No hardcoded hex/rgb/px magic values remain in any .css or inline style.
+2. Verify dark mode renders correctly on EVERY component — nothing invisible, unreadable, or low-contrast. Check: MonthView, WeekView, DayView, YearView, AgendaSidebar, EventModal, QuickAdd, SearchBar, StatsDashboard, CalendarHeader, MiniCalendar.
+
+CHECKLIST:
+- [ ] No hardcoded color values (replace with var(--token))
+- [ ] No hardcoded spacing/size values that should be tokens
+- [ ] Every component readable in dark mode (contrast >= 4.5:1 for body text)
+- [ ] No component depends on a missing CSS variable
+
+Edit only CSS / inline styles. Do NOT modify component logic or TSX structure. Run `npm run build` to verify it still compiles. Output a summary of tokens fixed.

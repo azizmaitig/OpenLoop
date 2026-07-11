@@ -1,0 +1,22 @@
+Task: Polish dark mode and color system in the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load impeccable skill. Run /impeccable colorize src/index.css. Run /impeccable colorize src/App.css.
+
+DARK MODE POLISH:
+1. Check EVERY CSS variable override in [data-theme='dark']. Body text must hit >=4.5:1 against dark background. Muted text must hit >=3:1. Currently: dark bg is #1a1a2e (very dark navy). Body text on this must be light enough.
+
+2. Modal in dark mode: the overlay and modal surface should be distinguishable. Modal surface slightly lighter than page background.
+
+3. Input fields in dark mode: borders must be visible (not pure black on near-black). Use a mid-tone border like #444 or var(--color-border) set to a visible value.
+
+4. Event chips in dark mode: colored chips on dark bg need enough contrast. Add a subtle white border (opacity 0.2) around colored chips in dark mode.
+
+5. Calendar grid lines in dark mode: should be subtle but visible. Ensure var(--border-secondary) has a visible dark value.
+
+6. Hover states in dark mode: should be lighter (not darker like in light mode). var(--hover-bg) and var(--hover-cell) need dark-mode-specific values.
+
+7. All 8 preset event colors must work in both themes. For dark mode, slightly lighten them or add a white text shadow.
+
+Overall: dark mode should feel cohesive, not inverted-light-mode. Each surface should be intentionally colored for its depth level.
+
+Run npm run build to verify.

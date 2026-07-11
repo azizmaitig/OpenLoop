@@ -1,0 +1,18 @@
+Task: Final-polish pass — critique & DESIGN.md update for calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load the impeccable skill. This is phase 9d (final) of the calendar design loop.
+
+STEPS:
+1. Run `/impeccable critique src/App.tsx` and `/impeccable critique` on the main view components to get a final UX/heuristic score.
+2. Fix any HIGH-severity critique findings only (do not expand scope to new features).
+3. Update DESIGN.md to reflect the FINAL design state. It must include:
+   - color tokens (with hex + CSS var names)
+   - typography scale
+   - spacing scale
+   - z-index scale
+   - component list
+   - dark mode strategy
+   - animation guidelines (incl. reduced-motion)
+4. Run `npm run build` to verify.
+
+Output a final summary of all changes made across the entire design loop (phases 1–10 + 9a–9d).

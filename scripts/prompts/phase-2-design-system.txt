@@ -1,0 +1,24 @@
+Task: Create a proper OKLCH-based design token system for the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load the impeccable skill and the high-end-visual-design skill.
+
+STEP 1 — Audit existing CSS variables in src/index.css (light + dark themes). Identify all hardcoded colors and replace with OKLCH-based CSS custom properties. Rules: body text must hit >=4.5:1 contrast, large text >=3:1.
+
+STEP 2 — Create a cohesive token set:
+  --color-ink (primary text, near-black)
+  --color-paper (page background)
+  --color-surface (card/surface background)
+  --color-border (borders and dividers)
+  --color-accent (primary blue #3b82f6 - keep and systematize)
+  --color-muted (secondary text)
+  --color-danger (#ef4444), --color-success, --color-warning
+  Semantic z-index scale (dropdown: 10, sticky: 20, modal-backdrop: 90, modal: 100, toast: 110, tooltip: 120)
+  Spacing scale (--space-1: 4px, --space-2: 8px, --space-3: 12px, --space-4: 16px, --space-6: 24px, --space-8: 32px)
+  Radius scale (--radius-sm: 4px, --radius-md: 8px, --radius-lg: 12px)
+  Font-size scale (--text-xs through --text-xxl)
+
+STEP 3 — Ensure EVERY hardcoded value in src/index.css and src/App.css uses a CSS variable. No magic numbers. No raw hex values (except the 8 preset event colors which stay as inline style).
+
+STEP 4 — Dark mode: ensure ALL dark theme overrides exist and pass contrast. Every light variable must have a dark counterpart in [data-theme='dark'].
+
+Do NOT change any layout, component structure, or functionality. Only extract tokens into variables. Run npm run build after finishing to verify.

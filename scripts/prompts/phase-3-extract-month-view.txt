@@ -1,0 +1,16 @@
+Task: Extract the inline month view grid and improve state organization in the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load design-taste-frontend skill.
+
+STEP 1 — Create src/components/MonthView.tsx: Extract the month grid rendering from App.tsx (lines ~318-374, the month-grid, month-body, month-row, day-cell rendering) into a proper MonthView component. Props needed: currentDate, events, onDateClick, onEventClick, onDayDrop (for drag/drop).
+
+STEP 2 — Create src/components/MonthView.css: Move all month-grid related CSS from src/App.css into this file. Import it from MonthView.tsx. Keep using the CSS variable tokens from Phase 2.
+
+STEP 3 — In App.tsx, replace the inline month grid with <MonthView ... /> component. Import and use the new component.
+
+STEP 4 — Review the ~25+ useState hooks in App.tsx. Group related state into 2-3 useReducer calls if it reduces complexity:
+  viewState: currentDate, viewMode, zoomLevel
+  uiState: showModal, modalEvent, showStats, showTemplates, darkMode
+  Do NOT change events state (useEvents hook) or undo/redo state
+
+Run npm run build after finishing to verify no regressions.

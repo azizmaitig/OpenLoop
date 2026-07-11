@@ -1,0 +1,20 @@
+Task: Final-polish pass — console errors & AI-slop sweep across calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load the impeccable skill. This is phase 9c of the calendar design loop (finish-only).
+
+SCOPE:
+1. Verify no console errors on mount and on interaction (switch all 4 view modes, open/close EventModal, add/delete an event, use QuickAdd, SearchBar).
+2. Check for AI slop patterns and remove any found:
+   - gradient text
+   - side-stripe / left-border accent bars
+   - glassmorphism (backdrop-filter blur with transparency)
+   - nested cards (card inside card)
+   - tiny uppercase eyebrow labels
+3. Verify the 4 view modes (Month/Week/Day/Year) switch smoothly with no layout shift or broken state.
+
+CHECKLIST:
+- [ ] Zero console errors on mount + interaction
+- [ ] No AI-slop patterns present
+- [ ] View switching is smooth
+
+Edit only what is needed. Run `npm run build` to verify. Output a summary.

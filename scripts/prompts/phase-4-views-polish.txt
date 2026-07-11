@@ -1,0 +1,28 @@
+Task: Polish the layout and typography of all calendar views in the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+
+Load impeccable skill and design-taste-frontend skill. Run /impeccable layout src/components/WeekView.tsx Run /impeccable layout src/components/DayView.tsx Run /impeccable layout src/components/YearView.tsx Run /impeccable typeset src/App.css
+
+Specific improvements:
+WEEK VIEW (WeekView.tsx + related CSS):
+  - Ensure time column is properly aligned
+  - Event column layout: fix overlapping event resolution
+  - Current-time red line should be properly positioned
+  - All-day section should have consistent spacing
+  - Hour slot hover states
+
+DAY VIEW (DayView.tsx):
+  - Same as week view for single day
+  - Full date header polish
+
+YEAR VIEW (YearView.tsx):
+  - 4-column grid should be balanced
+  - Month mini-calendars consistent sizing
+  - Event dot indicators properly spaced
+
+MONTH VIEW (MonthView.tsx — created in phase 3):
+  - Day cell sizing consistency
+  - Week number column styling
+  - Event chip overflow handling
+  - Drag-over state visual feedback
+
+Use the CSS design tokens from Phase 2. Cap body line length at 65-75ch where text appears. Use text-wrap: balance on headings. Use the semantic z-index scale. Do NOT change functionality — only visual/layout polish. Run npm run build to verify.
