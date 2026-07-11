@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { executePhaseGroup } from "../src/execute-phases.js";
 import type { ExecutionDeps } from "../src/execute-phases.js";
 import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.js";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+import { executePhaseGroup } from "../src/execute-phases.js";
 
-const exit1Cmd = process.platform === 'win32' ? "cmd.exe /c exit 1" : "exit 1";
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makePhase(overrides?: Partial<PhaseDef>): PhaseDef {
   return {
@@ -64,7 +63,7 @@ describe("executePhaseGroup", () => {
 
   test("reports failure for a failing command", async () => {
     const deps = makeDeps({
-      config: makeConfig([makePhase({ name: "fail", command: exit1Cmd })]),
+      config: makeConfig([makePhase({ name: "fail", command: "exit 1" })]),
     });
     const state = makeState();
 
@@ -103,7 +102,7 @@ describe("executePhaseGroup", () => {
   test("calls onPhaseFailed when a phase fails", async () => {
     const failed: string[] = [];
     const deps = makeDeps({
-      config: makeConfig([makePhase({ name: "fail", command: exit1Cmd })]),
+      config: makeConfig([makePhase({ name: "fail", command: "exit 1" })]),
       onPhaseFailed: (phase: PhaseDef, _result: PhaseResult) => { failed.push(phase.name); },
     });
     const state = makeState();
@@ -132,7 +131,7 @@ describe("executePhaseGroup", () => {
   test("runs all phases even after a failure (no short-circuit)", async () => {
     const deps = makeDeps({
       config: makeConfig([
-        makePhase({ name: "first", command: exit1Cmd }),
+        makePhase({ name: "first", command: "exit 1" }),
         makePhase({ name: "second", command: "echo after-fail" }),
       ]),
     });
