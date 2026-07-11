@@ -35,11 +35,5 @@
         "edit": "deny"
       }
     }
-  },
-  "commands": {
-    "/audit": {
-      "description": "Run 7-axis audit on a .plan.yaml file. Usage: /audit <plan-path>",
-      "prompt": "Run the loop-auditor skill audit on the specified plan file. Execute: bun .opencode/skills/loop-auditor/scripts/audit-plan.ts --plan <plan-path>. Then present the findings summary to the user."
-    }
   }
 }

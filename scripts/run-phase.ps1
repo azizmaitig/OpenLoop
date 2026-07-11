@@ -47,9 +47,7 @@ try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "opencode"
     $psi.Arguments = "run `"$tmpFile`" --model opencode/deepseek-v4-flash-free --variant high --auto"
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $false
-    $psi.RedirectStandardError = $false
+    $psi.UseShellExecute = $true
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     $proc.Start() | Out-Null
