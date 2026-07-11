@@ -23,6 +23,7 @@ function makeConfig(phases: PhaseDef[] = [makePhase()]): LoopConfig {
     maxIterations: 3,
     phaseTimeoutMs: 30000,
     phases,
+    memory: { enabled: false },
   };
 }
 
