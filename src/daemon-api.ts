@@ -18,7 +18,7 @@ import type { TsRing } from './dashboard-api.js';
  * Routes never touch Daemon internals directly.
  */
 export interface DaemonAPI {
-  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null };
+  getState(): DaemonStatus & { queueLength: number; currentTask: Task | null; loopState: LoopState | null };
   stop(): void;
   isAuthorized(req: Request): boolean;
   isPaused(): Promise<boolean>;
