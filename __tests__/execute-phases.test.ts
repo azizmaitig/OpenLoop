@@ -5,6 +5,8 @@ import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const exit1Cmd = process.platform === 'win32' ? "cmd.exe /c exit 1" : "exit 1";
+
 function makePhase(overrides?: Partial<PhaseDef>): PhaseDef {
   return {
     name: "test",
@@ -61,7 +63,7 @@ describe("executePhaseGroup", () => {
 
   test("reports failure for a failing command", async () => {
     const deps = makeDeps({
-      config: makeConfig([makePhase({ name: "fail", command: "cmd.exe /c exit 1" })]),
+      config: makeConfig([makePhase({ name: "fail", command: exit1Cmd })]),
     });
     const state = makeState();
 
@@ -100,7 +102,7 @@ describe("executePhaseGroup", () => {
   test("calls onPhaseFailed when a phase fails", async () => {
     const failed: string[] = [];
     const deps = makeDeps({
-      config: makeConfig([makePhase({ name: "fail", command: "cmd.exe /c exit 1" })]),
+      config: makeConfig([makePhase({ name: "fail", command: exit1Cmd })]),
       onPhaseFailed: (phase: PhaseDef, _result: PhaseResult) => { failed.push(phase.name); },
     });
     const state = makeState();
@@ -129,7 +131,7 @@ describe("executePhaseGroup", () => {
   test("runs all phases even after a failure (no short-circuit)", async () => {
     const deps = makeDeps({
       config: makeConfig([
-        makePhase({ name: "first", command: "cmd.exe /c exit 1" }),
+        makePhase({ name: "first", command: exit1Cmd }),
         makePhase({ name: "second", command: "echo after-fail" }),
       ]),
     });
