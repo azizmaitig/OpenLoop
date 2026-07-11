@@ -1,0 +1,217 @@
+planName: dashboard-upscale
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+
+  - id: planning
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\spec.md,
+      design.md, review.md, and design-critique.md for context on v1. Also read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\src\routes.ts and
+      src\dashboard-api.ts ONLY as a reference for the existing API contract (DO NOT edit src/).
+      Write a concise product spec to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md for an
+      upscale of the agent-loop observability dashboard with THREE thrusts: (1) a new
+      Plans/Runs screen showing live plan progress while plans run; (2) more live metrics
+      (fix the known gaps: durationP95 / passRate charts are not live, timeseries cadence,
+      missing error-rate / recovery / trigger-fire visibility); (3) a design upscale pass
+      (gauges, sparkline cards, denser layout, dark-mode cohesion). HARD CONSTRAINT (must be
+      in the spec): NO edits to src/ — no daemon.ts, routes.ts, daemon-api.ts, or
+      dashboard-api.ts changes. Everything is additive inside the dashboard/ Vite package.
+      Plans screen stays live via 2s polling of GET /api/checkpoint + GET /loops (no new WS
+      event). Live durationP95/passRate/error-rate series are DERIVED CLIENT-SIDE from the
+      existing GET /api/metrics (already returns p95DurationMs, passCount, failCount,
+      errorCount) and GET /api/history, polled at 2s, into a client-side ring — do NOT add
+      new backend endpoints. Out-of-scope: auth, cost tracking, control plane, 24h+
+      historical persistence (scope time-series windows to 10m/1h only). Acceptance: vite
+      build passes, parent bun test stays green, Plans screen renders live progress, all 4
+      promised time-series charts now update live, design reads as a polished ops console.
+      Keep under 600 lines. Exit 0 when written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+
+  - id: research
+    command: >-
+      opencode run "Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md.
+      Research the stack and top risks for this upscale using CURRENT docs (React 18/19, Vite
+      5/6, uPlot, Recharts, TanStack Query, TanStack Virtual) via websearch + web fetch: (R1)
+      client-side derivation of live time-series from polled REST (no WS) — ring buffer +
+      requestAnimationFrame coalescing pattern; (R2) how to poll /api/checkpoint + /loops at
+      2s without render storms (TanStack Query refetchInterval + notifyManager RAF
+      scheduler); (R3) uPlot for 4+ live series (throughput, queueDepth, durationP95,
+      passRate) sharing one canvas or stacked; (R4) gauge + sparkline card patterns with
+      Recharts; (R5) design-system approaches for a dense ops console (CSS variables,
+      dark-mode tokens, status color system). Cite URLs. Write findings to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-research.md:
+      per risk give evidence+source, recommended approach, fallback. Do NOT write code. Exit
+      0 when written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+
+  - id: design
+    command: >-
+      opencode run --agent architect "Load and follow the `api-and-interface-design` skill.
+      CRITICAL — FIELD VERIFICATION REQUIRED:
+      Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\src\lib\types.ts and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\src\types.ts.
+      At the TOP of your design output, print a verification table listing EVERY field name
+      you reference in the design and whether it EXISTS or DOES NOT EXIST in the real source
+      types. Any field marked DOES NOT EXIST will cause the phase to be rejected.
+      Examples: CheckpointState has completedTaskIds/updatedAt/results but NOT totalTasks.
+      ChildLoopSummary has triggerCount but NOT triggers[] or lastRunAt.
+      CheckpointEntry has status/durationMs/exitCode but NOT stderr.
+      HistoryListEntry has status/taskStatus but NOT retryCount, healed, or recovered.
+      Do NOT reference fields that don't exist. Use real alternatives:
+      progress = completedTaskIds.length / Object.keys(results).length
+      triggers display = triggerCount (number) from ChildLoopSummary
+      Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-research.md.
+      Produce a technical design in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design.md for the
+      dashboard upscale (additive, dashboard/ only, NO src/ edits): module/component
+      breakdown — new PlansScreen + usePlans hook (polls /api/checkpoint at 2s + /loops,
+      derives per-plan progress = completedTaskIds.length / Object.keys(results).length,
+      current task = inProgressTaskId, phase, ETA from CheckpointState), new client-side
+      series hooks (useDerivedSeries: builds durationP95/passRate/error-rate rings from
+      /api/metrics + /api/history polls), new metric cards (error-rate, trigger-fire counts
+      from sum of triggers[].fireCount delta), design-system tokens (CSS vars, dark-mode,
+      status colors) + gauge component + sparkline cards, and the App shell change to add a
+      third tab. Data layer: new TanStack Query hooks (usePlans, useDerivedSeries) + install
+      notifyManager.setScheduler(requestAnimationFrame) in main.tsx + fix useTimeSeries
+      refetchInterval to 2000. File layout additions under dashboard/src (screens/PlansScreen.tsx,
+      components/plans/*, components/ops/* additions, hooks/usePlans.ts, hooks/useDerivedSeries.ts,
+      lib/series.ts, styles/tokens.css). Build/test: vite build + vitest. Do NOT write
+      application code. Exit 0 when written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    produces: "dashboard/.build/upscale-design.md"
+    producedMustHaveContent: true
+
+  - id: design-critique
+    command: >-
+      opencode run --agent code-reviewer "Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md. Critique
+      the design against the spec: missing requirements, over-engineering, security/scalability
+      gaps, unclear interfaces, and CRITICALLY whether the design truly avoids ANY src/ edits
+      (no daemon.ts / routes.ts / daemon-api.ts / dashboard-api.ts changes) and relies only on
+      polling existing endpoints. Also verify that every field name in the design actually
+      exists in the real source types (read dashboard/src/lib/types.ts and src/types.ts).
+      Write verdict to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design-critique.md
+      with explicit APPROVE or REVISE and P0-P2 issues. Do NOT modify source. Exit 0 when
+      written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior architecture reviewer. Stdout holds upscale-design-critique.md.
+        Return JSON: { "passed": boolean (true=APPROVE, false=REVISE), "reason": "markdown
+        report with P0-P2 issues and spec adherence, emphasizing the no-src-edits check",
+        "confidence": 0.0-1.0 }.
+    produces: "dashboard/.build/upscale-design-critique.md"
+    producedMustHaveContent: true
+
+  - id: code-frontend
+    command: >-
+      opencode run "Load the `frontend-ui-engineering`, `impeccable`, and `ui-ux-pro-max`
+      skills and follow them.
+      CRITICAL: The design-critique.md is the AUTHORITY on which fields actually exist. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design-critique.md
+      FIRST. If the design contradicts the critique, ALWAYS follow the critique — it verified
+      every field against real source types. Do NOT implement fields the critique flags as
+      non-existent. Use ONLY the fields that exist in the real
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\src\lib\types.ts:
+      CheckpointState has completedTaskIds, inProgressTaskId, results. Use Object.keys(results).length
+      for total tasks — NOT totalTasks.
+      ChildLoopSummary has triggerCount (number) — NOT triggers[] or lastRunAt.
+      CheckpointEntry has status/durationMs/exitCode — NO stderr.
+      HistoryListEntry has status as TaskStatus ('queued'|'running'|'completed'|'failed'|'cancelled')
+      — NO retryCount, healed, or recovered.
+      Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md. Implement
+      the upscale ENTIRELY inside
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard (Vite React TS
+      SPA). Build: (A) PlansScreen + usePlans hook polling GET /api/checkpoint (2s) + GET /loops
+      (2s), rendering each active plan's live progress (completedTaskIds.length / Object.keys(results).length,
+      current task from inProgressTaskId, ETA), with a per-plan detail drawer; (B) useDerivedSeries hook
+      building client-side rings for durationP95, passRate, error-rate from polled /api/metrics +
+      /api/history; wire all FOUR promised time-series charts (throughput, queueDepth,
+      durationP95, passRate) live via uPlot; (C) new metric cards: error-rate, trigger-fire
+      counts (from /api/metrics triggers[].fireCount sum, NOT from imagined healing fields);
+      (D) install notifyManager.setScheduler(requestAnimationFrame) in main.tsx and set
+      useTimeSeries refetchInterval to 2000; (E) design upscale: tokens.css (CSS vars,
+      dark-mode, status color system), a HealthScore gauge, sparkline cards, denser 3-tab App
+      shell layout. Configure vite.config.ts build.outDir '../src/dashboard' and base './'. Do
+      NOT edit any file outside dashboard/. Consume ONLY existing API endpoints. Write a diff
+      summary to D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-code.diff.
+      NON-GOALS: no src/ edits, no auth, no cost tracking, no control plane. Exit 0 when
+      implemented." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    produces: "dashboard/.build/upscale-code.diff"
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run "The phase failed because no upscale-code.diff was produced. The
+      DESIGN may reference fields that don't exist. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design-critique.md
+      for the authoritative list of which fields actually exist. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\src\lib\types.ts for the real
+      types. Apply minimal fix inside
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard only. Do not expand scope or
+      touch src/. Write a diff summary to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-code.diff. Exit
+      0 when fixed." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    maxRetries: 3
+
+  - id: test
+    command: >-
+      opencode run "Run the dashboard project's build + test in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard (bunx vite build + vitest run).
+      Capture to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-test.log. Also run
+      'bun test' in the parent loop dir
+      (D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop) to confirm the additive dashboard did not
+      regress (no src/ was touched, but confirm green). Exit 0 only if BOTH pass; else
+      non-zero." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+
+  - id: review
+    command: >-
+      opencode run --agent code-reviewer "Load the `code-review-and-quality` skill and follow
+      it. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-code.diff,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design.md, and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md. Code review:
+      correctness, security (no secrets/exposure), readability, design adherence, that NO
+      src/ file was edited (additivity), and that all three thrusts are delivered (Plans
+      screen, more live metrics, design upscale). Write findings to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-review.md with P0-P2
+      issues and verdict. Do NOT modify source. Exit 0 when written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior code reviewer. Stdout holds upscale-review.md. Return JSON: {
+        "passed": boolean, "reason": "markdown review with P0-P2 issues and verdict,
+        confirming no src/ edits", "confidence": 0.0-1.0 }.
+    produces: "dashboard/.build/upscale-review.md"
+    producedMustHaveContent: true
+
+  - id: verify
+    command: >-
+      opencode run --agent verifier "Final non-LLM gate for
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard: re-run 'bunx vite build' in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard and 'bun test' in the parent loop dir;
+      confirm both exit 0. Confirm src/dashboard/index.html exists (built output) and the new
+      PlansScreen + 4 live time-series charts are wired. Exit 0 only if everything passes;
+      otherwise exit non-zero. Hard gate — command exit code decides." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000

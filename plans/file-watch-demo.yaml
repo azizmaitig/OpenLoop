@@ -4,4 +4,7 @@ tasks:
     timeoutMs: 30000
     llm:
       provider: openai
-      prompt: "summarize what the file-watch-demo plan does in 10 words"
+      prompt: summarize what the file-watch-demo plan does in 10 words
+    status: fail
+    durationMs: 31
+    completedAt: '2026-07-11T02:05:20.293Z'

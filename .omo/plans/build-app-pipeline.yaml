@@ -14,6 +14,12 @@
 #   3. --max-iterations N: N=1 = one-shot build; N>1 = the WHOLE plan re-loops N times on
 #      pass (N full rebuilds). There is NO per-stage retry today. Hard cap 20 (config.ts).
 #
+# AGENT SPECIALIZATION:
+#   `design` and `design-critique` use --agent architect / code-reviewer for role-specific
+#   output. Code phases skip --agent because subagents like `react-expert` fall back to default.
+#   Review phases use --agent code-reviewer. Feel free to add --agent to other phases once
+#   confirmed working (tested: architect√, code-reviewer√, react-expert✗ falls back).
+#
 # SAFETY RAILS (baked into every stage):
 #   R1 Infinite-loop/recovery guard (REDEFINED): the `code` stage authors healCommand +
 #      maxRetries:3 but per ADR-0009 they are NO-OPS until ADR-0011 is implemented. The real
@@ -62,22 +68,23 @@ tasks:
 
   - id: design
     command: >-
-      opencode run "Read {{TARGET_DIR}}/.build/spec.md and {{TARGET_DIR}}/.build/research.md.
-      Produce a concrete technical design in {{TARGET_DIR}}/.build/design.md for the throwaway
-      Vite + React + TypeScript hello-world SPA (counter component): module/component
-      breakdown (App, Counter component, main entry), data model (local component state only),
-      API surface (none — no backend), key algorithms (increment handler), file layout
-      (index.html, src/main.tsx, src/App.tsx, src/Counter.tsx, vite.config.ts, vitest config),
-      and a build/test strategy (vite build + vitest). Also note any design decisions needing
-      an ADR. Do NOT write application code. Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
+      opencode run --agent architect "Read {{TARGET_DIR}}/.build/spec.md and
+      {{TARGET_DIR}}/.build/research.md. Produce a concrete technical design in
+      {{TARGET_DIR}}/.build/design.md for the throwaway Vite + React + TypeScript hello-world
+      SPA (counter component): module/component breakdown (App, Counter component, main entry),
+      data model (local component state only), API surface (none — no backend), key algorithms
+      (increment handler), file layout (index.html, src/main.tsx, src/App.tsx, src/Counter.tsx,
+      vite.config.ts, vitest config), and a build/test strategy (vite build + vitest). Also
+      note any design decisions needing an ADR. Do NOT write application code. Exit 0 when the
+      file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 180000
 
   - id: design-critique
     command: >-
-      opencode run "Read {{TARGET_DIR}}/.build/design.md and {{TARGET_DIR}}/.build/spec.md.
-      Critique the design against the spec: missing requirements, over-engineering, security
-      or scalability gaps, and unclear interfaces. Write the verdict to
-      {{TARGET_DIR}}/.build/design-critique.md with an explicit APPROVE or REVISE decision and
+      opencode run --agent code-reviewer "Read {{TARGET_DIR}}/.build/design.md and
+      {{TARGET_DIR}}/.build/spec.md. Critique the design against the spec: missing requirements,
+      over-engineering, security or scalability gaps, and unclear interfaces. Write the verdict
+      to {{TARGET_DIR}}/.build/design-critique.md with an explicit APPROVE or REVISE decision and
       a prioritized list of issues (P0-P2). Do NOT modify any source files. Exit 0 when the
       file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 120000
@@ -120,9 +127,10 @@ tasks:
 
   - id: review
     command: >-
-      opencode run "Read {{TARGET_DIR}}/.build/code.diff and {{TARGET_DIR}}/.build/design.md.
-      Perform a code review: correctness, security, readability, and adherence to the design.
-      Write findings to {{TARGET_DIR}}/.build/review.md with P0-P2 issues and a verdict.
+      opencode run --agent code-reviewer "Read {{TARGET_DIR}}/.build/code.diff and
+      {{TARGET_DIR}}/.build/design.md. Perform a code review: correctness, security,
+      readability, and adherence to the design. Write findings to
+      {{TARGET_DIR}}/.build/review.md with P0-P2 issues and a verdict.
       Do NOT modify source. Exit 0 when the file is written." --dir "{{TARGET_DIR}}"
     timeoutMs: 120000
     llm:

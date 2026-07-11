@@ -1,0 +1,171 @@
+planName: dashboard-build
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 30
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: planning
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/STATE.md if
+      present, otherwise read the parent loop project (D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop) AGENTS.md, src/types.ts, src/routes.ts, src/daemon.ts, src/metrics.ts,
+      src/state.ts. This is a REAL observability dashboard (not throwaway): a Vite + React + TypeScript single-page app
+      that visualizes the agent-loop's own runtime metrics. Write a concise product spec to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md covering: goal (live ops dashboard for the loop),
+      users (the loop operator / developer), core features (Ops Health screen + Diagnostic screen, live metrics,
+      detailed indicators, WS event feed, virtualized history), tech-stack (Vite + React + TS, uPlot for time-series,
+      Recharts for cards, TanStack Query for server state, TanStack Virtual for tables, WS/SSE bridge with RAF
+      batching), data sources (existing API: /state, /api/metrics, /api/history, /api/tasks/:id, /loops, WS /ws; NEW
+      additive endpoints: /api/health-score, /api/metrics/timeseries, /api/checkpoint), out-of-scope (auth, token/cost
+      tracking, deploy, separate server), and acceptance criteria (build passes, daemon serves /dashboard, all P0
+      metrics render, bun test still green). Keep under 500 lines. Exit 0 when written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 72806
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: research
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md.
+      Research the recommended stack and top risks for this dashboard: uPlot vs Recharts vs visx for high-frequency
+      series; TanStack Query + SSE/WS pattern with requestAnimationFrame batching to avoid React render storms; TanStack
+      Virtual for large tables; how to consume the loop's existing WS /ws protocol (state_change / child_status_change /
+      task_completed) and REST endpoints. Use websearch + web fetch for CURRENT docs (React 18/19, Vite 5/6, uPlot,
+      TanStack). Cite URLs. Write findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/research.md: per risk give evidence+source, recommended
+      approach, fallback. Do NOT write code. Exit 0 when written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 106214
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: design
+    command: >-
+      opencode run --agent architect "Load and follow the `api-and-interface-design` skill for module boundaries and
+      interface contracts. Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/research.md. Produce a concrete technical design in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/design.md for the React/TS
+      dashboard: module/component breakdown (App shell, OpsHealthScreen, DiagnosticScreen, useLoopStream hook, metric
+      cards, uPlot charts, virtualized tables, WS event feed, checkpoint bar), data layer (TanStack Query hooks per
+      endpoint + WS bridge with RAF flush), file layout (index.html, vite.config.ts with build.outDir ../src/dashboard
+      and base './', src/main.tsx, src/App.tsx, components/*, hooks/*, lib/api.ts), and build/test strategy (vite build
+      + vitest). Also design the THREE additive backend endpoints as a separate module src/dashboard-api.ts
+      (health-score from computeHealthScore, timeseries ring buffer appended on daemon state_change, checkpoint loader)
+      and how routes.ts wires them — WITHOUT editing existing handlers. Do NOT write application code. Exit 0 when
+      written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    status: pass
+    durationMs: 226841
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: design-critique
+    command: >-
+      opencode run --agent code-reviewer "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/design.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md. Critique the design against the spec: missing
+      requirements, over-engineering, security/scalability gaps, unclear interfaces, and whether the additive backend
+      approach truly avoids touching existing daemon/route logic. Write verdict to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/design-critique.md with explicit APPROVE or REVISE and
+      P0-P2 issues. Do NOT modify source. Exit 0 when written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior architecture reviewer. Stdout holds design-critique.md. Return JSON: { "passed": boolean
+        (true=APPROVE, false=REVISE), "reason": "markdown report with P0-P2 issues and spec adherence", "confidence":
+        0.0-1.0 }.
+    status: pass
+    durationMs: 162054
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: code-backend
+    command: >-
+      opencode run "Load the `api-and-interface-design` skill first and follow it. Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/design.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md. Implement ONLY the additive backend module in the
+      parent loop project (D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop): create
+      src/dashboard-api.ts exporting handlers for GET /api/health-score (using computeHealthScore from
+      src/memory-hooks.ts), GET /api/metrics/timeseries?window= (ring buffer fed by daemon state_change), GET
+      /api/checkpoint?plan= (loadCheckpoint from _agent-loop-output/checkpoint-{planName}.json). Wire them into
+      src/routes.ts by ADDING new if-branches only — do NOT modify existing handlers, daemon.ts, or types.ts beyond
+      appending new route types if needed. NON-GOALS: no auth, no cost, no edits to existing logic. Write a diff summary
+      to D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-backend.diff. Then run
+      'bun test' in the parent loop dir and confirm it stays green. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run "Re-read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-backend.diff and the failing bun test output. Apply
+      the minimal fix in the parent loop project. Do not expand scope. Exit 0 when fixed." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    maxRetries: 3
+    status: pass
+    durationMs: 229456
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: code-frontend
+    command: >-
+      opencode run "Load the `frontend-ui-engineering` and `impeccable` skills and follow them. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/design.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/spec.md. Implement the
+      React/TS dashboard inside D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard (scaffold
+      Vite + React + TS). Build: App shell with two screens (Ops Health, Diagnostic), useLoopStream hook (TanStack Query
+      + WS /ws bridge with requestAnimationFrame batching), metric stat cards w/ sparklines (Recharts), uPlot
+      time-series for latency/throughput, phase table, virtualized task history (TanStack Virtual) + detail drawer, live
+      WS event feed (filterable), checkpoint progress bar, health strip + alerts. Configure vite.config.ts build.outDir
+      '../src/dashboard' and base './'. Consume existing API + the 3 new endpoints. Write a diff summary to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-frontend.diff. Assumes L2
+      enabled. NON-GOALS: no auth, no cost tracking, no deploy. Exit 0 when implemented." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run "Re-read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-frontend.diff and failing build/test output. Apply
+      minimal fix in D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard. Do not expand scope.
+      Exit 0 when fixed." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    maxRetries: 3
+    status: pass
+    durationMs: 42912
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: test
+    command: >-
+      opencode run "Run the dashboard project's build + test in D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard (bun run build + vitest run). Capture to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard/.build/test.log. Also run 'bun test'
+      in the parent loop dir (D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop) to confirm the
+      additive backend did not regress. Exit 0 only if BOTH pass; else non-zero." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 122523
+    completedAt: '2026-07-11T10:09:54.817Z'
+  - id: review
+    command: >-
+      opencode run --agent code-reviewer "Load the `code-review-and-quality` skill (and `security-review` for the
+      backend diff) and follow it. Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-frontend.diff, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/code-backend.diff, and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/design.md. Code review: correctness, security (no
+      secrets/exposure), readability, design adherence, and that the additive backend did not touch existing
+      daemon/route logic. Write findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard/.build/review.md with P0-P2 issues and verdict. Do NOT modify
+      source. Exit 0 when written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 300000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior code reviewer. Stdout holds review.md. Return JSON: { "passed": boolean, "reason": "markdown
+        review with P0-P2 issues and verdict", "confidence": 0.0-1.0 }.
+  - id: verify
+    command: >-
+      opencode run --agent verifier "Final non-LLM gate for D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard: re-run 'bun run build' in D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard and 'bun test' in the parent loop dir; confirm both exit 0.
+      Confirm src/dashboard/index.html exists (built output) and the 3 new endpoints are wired. Exit 0 only if
+      everything passes; otherwise exit non-zero. Hard gate — command exit code decides." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 151256
+    completedAt: '2026-07-11T10:09:54.817Z'

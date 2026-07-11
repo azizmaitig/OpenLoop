@@ -1,0 +1,167 @@
+planName: notes-web-hybrid-build
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 67
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: planning
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\STATE.md if present,
+      otherwise infer intent from the working directory. This is a FULL-STACK, PERSISTENT notes web app (NOT a
+      throwaway): a React + Vite + TypeScript SPA frontend connected to an Express + TypeScript REST API, with SQLite
+      file-based persistence so notes survive server restarts. Write a concise product spec to
+      ..\loop-factory\notes-web\.build\spec.md covering: goal (a real, runnable full-stack notes app for a single local
+      user), core features (create/edit/delete/list/view a note; notes persist in SQLite across restarts), tech stack
+      (React 18 + Vite + TypeScript SPA; Express 4 + TypeScript API; SQLite via better-sqlite3 or node:sqlite; vitest
+      for backend tests), explicit IN-scope (CORS for dev, global error handler, frontend<->API wiring), out-of-scope
+      (auth, multi-user, payments, cloud sync), and acceptance criteria (backend bun test passes; frontend bun run build
+      succeeds; POST then GET /notes shows the created note; edit updates stored note; delete removes it; stop+restart
+      preserves notes). Keep under 400 lines. Exit 0 when the file is written." --dir "..\loop-factory\notes-web"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 61327
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: research
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\spec.md. Research the
+      recommended stack and the top 3-5 risks/unknowns for this full-stack MVP: React 18 + Vite + TypeScript SPA,
+      Express 4 + TypeScript API on bun or node, SQLite persistence (better-sqlite3 vs node:sqlite), and connecting a
+      Vite dev frontend to the API (CORS vs Vite proxy). Use the websearch tool and web fetch for CURRENT library docs —
+      evidence MUST come from fetched docs, NOT memory. Cite every source URL. Write findings to
+      ..\loop-factory\notes-web\.build\research.md: per risk give evidence (source link), recommended approach,
+      fallback. Do NOT write code. Exit 0 when written." --dir "..\loop-factory\notes-web"
+    timeoutMs: 300000
+    status: pass
+    durationMs: 141067
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: design
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\spec.md and
+      ..\loop-factory\notes-web\.build\research.md. Produce a concrete technical design in
+      ..\loop-factory\notes-web\.build\design.md: repo/file layout (root with server/ for Express+SQLite and client/ for
+      React SPA, plus shared types), API route design (GET /health, GET /notes, POST /notes, GET /notes/:id, PUT
+      /notes/:id, DELETE /notes/:id), data model (Note: id UUID v4, title, content, createdAt, updatedAt), SQLite schema
+      (notes table), how the React SPA calls the API (fetch base URL; dev CORS or Vite proxy), frontend component/page
+      layout (list view, editor view, create/edit/delete actions), error handling (global handler, 404 missing note, 400
+      bad body), dev-run story. Do NOT write application code. Exit 0 when written." --dir "..\loop-factory\notes-web"
+    timeoutMs: 300000
+    status: pass
+    durationMs: 202465
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: design-critique
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\design.md and
+      ..\loop-factory\notes-web\.build\spec.md. Critique the design against the spec: missing requirements,
+      over-engineering, security/scalability gaps, unclear interfaces, frontend<->API contract mismatches. Write the
+      verdict to ..\loop-factory\notes-web\.build\design-critique.md with explicit APPROVE or REVISE and a prioritized
+      issue list (P0-P2). Do NOT modify source. Exit 0 when written." --dir "..\loop-factory\notes-web"
+    timeoutMs: 240000
+    status: pass
+    durationMs: 168635
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: code-backend
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\design.md and
+      ..\loop-factory\notes-web\.build\spec.md. Implement the BACKEND (Express + TypeScript + SQLite) inside
+      ..\loop-factory\notes-web: scaffold server/ (package.json with express + typescript + vitest; tsconfig.json;
+      src/server.ts on port 3000 or $PORT; src/db.ts opening/initializing the SQLite notes table using bun:sqlite
+      (import { Database } from "bun:sqlite" — NOT node:sqlite which does not exist on Bun); src/types.ts Note
+      interface; src/routes/notes.ts with GET /health, GET /notes, POST /notes, GET /notes/:id, PUT /notes/:id, DELETE
+      /notes/:id; global error handler; CORS for the Vite dev origin). Add a vitest suite
+      src/__tests__/notes.test.ts covering create/list/get/update/delete and persistence across reconnect (insert,
+      close, reopen, assert present). Use in-memory DB (:memory:) for CRUD tests to avoid Windows file locking; use a
+      unique temp file only for the persistence test. Use expect().toBeNull() for "no rows" — bun:sqlite returns null,
+      not undefined. Follow design faithfully. NON-GOALS: no auth, no multi-user, no unrelated refactor. Write a
+      unified diff to ..\loop-factory\notes-web\.build\code-backend.diff. Exit 0 when implementation + diff written.
+      Source editing is enabled." --dir "..\loop-factory\notes-web"
+    timeoutMs: 600000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Re-read ..\loop-factory\notes-web\.build\code-backend.diff and
+      the failing build/test output. Apply the minimal fix to the backend in ..\loop-factory\notes-web and update the
+      diff. Do not expand scope. Exit 0 when fixed." --dir "..\loop-factory\notes-web"
+    maxRetries: 3
+    status: pass
+    durationMs: 205201
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: code-frontend
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\design.md,
+      ..\loop-factory\notes-web\.build\spec.md, and the implemented backend under ..\loop-factory\notes-web\server
+      (routes, types, port). Implement the FRONTEND (React 18 + Vite + TypeScript SPA) inside ..\loop-factory\notes-web:
+      scaffold client/ (package.json, vite config, src/main.tsx, App component, notes list view, note editor view,
+      create/edit/delete actions calling the API via fetch with correct base URL; wire dev CORS or Vite proxy to API on
+      :3000). The UI must let a user create a note, see the list, open/edit, delete; data must reflect SQLite. Follow
+      design faithfully. NON-GOALS: no auth, no extra routing libs, no backend refactor. Write a unified diff to
+      ..\loop-factory\notes-web\.build\code-frontend.diff. Exit 0 when implementation + diff written. Source editing is
+      enabled." --dir "..\loop-factory\notes-web"
+    timeoutMs: 600000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Re-read ..\loop-factory\notes-web\.build\code-frontend.diff and
+      the failing build/output. Apply the minimal fix to the frontend in ..\loop-factory\notes-web and update the diff.
+      Do not expand scope. Exit 0 when fixed." --dir "..\loop-factory\notes-web"
+    maxRetries: 3
+    status: pass
+    durationMs: 176312
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location '..\loop-factory\notes-web\server'; bun
+      install; Set-Location '..\loop-factory\notes-web\client'; bun install; Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location '..\loop-factory\notes-web\server'; bun
+      install --force; Set-Location '..\loop-factory\notes-web\client'; bun install --force; Write-Host
+      'install-heal-ok'"
+    maxRetries: 3
+    status: pass
+    durationMs: 3985
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: test
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location '..\loop-factory\notes-web\server'; bun
+      test; if ($LASTEXITCODE -ne 0) { exit 1 }; Set-Location '..\loop-factory\notes-web\client'; bun run build; if
+      ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'test-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$f=Get-ChildItem '..\loop-factory\notes-web\server\src' -Recurse -Filter '*.ts';$f|%{$c=(Get-Content $_.FullName -Raw);$o=$c;$c=$c -replace 'node:sqlite','bun:sqlite' -replace 'DatabaseSync','Database' -replace 'toBeUndefined\(\)','toBeNull()';if($c -ne $o){[IO.File]::WriteAllText($_.FullName, $c)}};Remove-Item -Recurse -Force '..\loop-factory\notes-web\server\dist','..\loop-factory\notes-web\data' -ErrorAction SilentlyContinue;Set-Location '..\loop-factory\notes-web\server';bun test;if($LASTEXITCODE -ne 0){exit 1};Set-Location '..\loop-factory\notes-web\client';bun run build;if($LASTEXITCODE -ne 0){exit 1};Write-Host 'test-heal-ok'"
+    maxRetries: 3
+    status: fail
+    durationMs: 2104
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: review
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\code-backend.diff,
+      ..\loop-factory\notes-web\.build\code-frontend.diff, ..\loop-factory\notes-web\.build\design.md, and
+      ..\loop-factory\notes-web\.build\spec.md. Code review the full-stack notes app: correctness, security,
+      readability, frontend<->API contract adherence, design adherence. Write findings to
+      ..\loop-factory\notes-web\.build\review.md with P0-P2 issues and a verdict. Do NOT modify source. Exit 0 when
+      written." --dir "..\loop-factory\notes-web"
+    timeoutMs: 300000
+    status: pass
+    durationMs: 220208
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: evaluate
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes-web\.build\spec.md (acceptance
+      criteria), ..\loop-factory\notes-web\.build\test.log if present, and ..\loop-factory\notes-web\.build\review.md.
+      Judge whether the built full-stack notes app satisfies acceptance criteria (CRUD end to end, notes persist in
+      SQLite across restart, frontend connects to API, backend tests pass, frontend builds) and is usable. Write the
+      verdict to ..\loop-factory\notes-web\.build\evaluate.md. Exit 0 when done." --dir "..\loop-factory\notes-web"
+    timeoutMs: 300000
+    status: pass
+    durationMs: 185603
+    completedAt: '2026-07-11T01:11:53.863Z'
+  - id: verify
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location '..\loop-factory\notes-web\server'; bun
+      test; if ($LASTEXITCODE -ne 0) { exit 1 }; Set-Location '..\loop-factory\notes-web\client'; bun run build; if
+      ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'verify-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$f=Get-ChildItem '..\loop-factory\notes-web\server\src' -Recurse -Filter '*.ts';$f|%{$c=(Get-Content $_.FullName -Raw);$o=$c;$c=$c -replace 'node:sqlite','bun:sqlite' -replace 'DatabaseSync','Database' -replace 'toBeUndefined\(\)','toBeNull()';if($c -ne $o){[IO.File]::WriteAllText($_.FullName, $c)}};Remove-Item -Recurse -Force '..\loop-factory\notes-web\server\dist','..\loop-factory\notes-web\data' -ErrorAction SilentlyContinue;Set-Location '..\loop-factory\notes-web\server';bun test;if($LASTEXITCODE -ne 0){exit 1};Set-Location '..\loop-factory\notes-web\client';bun run build;if($LASTEXITCODE -ne 0){exit 1};Write-Host 'verify-heal-ok'"
+    maxRetries: 3
+    status: fail
+    durationMs: 530
+    completedAt: '2026-07-11T01:11:53.863Z'

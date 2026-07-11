@@ -1,0 +1,37 @@
+planName: build-app
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 41
+    completedAt: '2026-07-09T08:36:06.509Z'
+  - id: planning
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/STATE.md
+      if present, otherwise infer project intent from the working directory. This is a THROWAWAY hello-world app: a Vite
+      + React + TypeScript single-page application. Write a concise product spec to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md covering: goal (a runnable hello-world SPA),
+      users (n/a, throwaway), core features (MVP scope only — e.g. a counter component that increments on click,
+      rendered with React + Vite, builds clean, `bun test`/vitest green), out-of-scope (auth, routing, backend,
+      persistence, payments), tech-stack recommendation (Vite 5/6 + React 18/19 + TypeScript, vitest for tests), and
+      acceptance criteria (npm run build succeeds, tests pass, app renders the counter). Keep it under 400 lines. Exit 0
+      when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 56624
+    completedAt: '2026-07-09T08:36:06.509Z'
+  - id: research
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md.
+      Research the recommended tech stack and the top 3-5 risks/unknowns for this MVP (library choices, integration
+      gotchas, perf ceilings). Use the websearch tool and web fetch for CURRENT library docs (React 18 vs 19, Vite 5 vs
+      6, Bun vs npm, vitest setup) — evidence MUST come from fetched docs, NOT from memory. Cite every source URL in
+      research.md. Write findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/research.md: for each risk give evidence (with source
+      link), a recommended approach, and a fallback. Do NOT write code. Exit 0 when the file is written." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 126116
+    completedAt: '2026-07-09T08:36:06.509Z'

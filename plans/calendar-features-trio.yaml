@@ -1,0 +1,56 @@
+planName: calendar-features-trio
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 31
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat1-categories-implement
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\feature-categories-filtering.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 413917
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat1-categories-verify
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3468
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat2-bulk-edit-implement
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\feature-bulk-edit.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 527744
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat2-bulk-edit-verify
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3013
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat3-onboarding-implement
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\feature-onboarding.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 13194
+    completedAt: '2026-07-09T03:13:43.542Z'
+  - id: feat3-onboarding-verify
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2985
+    completedAt: '2026-07-09T03:13:43.542Z'

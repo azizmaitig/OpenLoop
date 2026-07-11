@@ -1,0 +1,108 @@
+planName: design-calendar-round1
+tasks:
+  - id: batch-1-setup-test-infra
+    command: >-
+      opencode run "Install vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom
+      --save-dev in the calendar-app at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app. Create
+      vitest.config.ts with jsdom environment. Add test script: vitest run, test:watch: vitest. Create src/test/setup.ts
+      importing @testing-library/jest-dom. Update tsconfig.app.json to include vitest types. Do NOT modify any source
+      code." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 180000
+    status: fail
+    durationMs: 703
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-1
+    command: npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" run build
+    timeoutMs: 120000
+    status: fail
+    durationMs: 389
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: batch-2-core-component-tests
+    command: >-
+      opencode run "Add comprehensive tests for CalendarHeader.tsx and MiniCalendar.tsx in the calendar-app at
+      D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app. Write src/components/CalendarHeader.test.tsx
+      and src/components/MiniCalendar.test.tsx. Test: rendering with different view types, navigation button clicks
+      (n/p/t keyboard shortcuts), month/year label display, mini calendar date selection edge cases. Use
+      @testing-library/react. Mock localStorage. Do NOT modify the components." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 300000
+    status: fail
+    durationMs: 2194
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-2-build
+    command: npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" run build
+    timeoutMs: 120000
+    status: fail
+    durationMs: 386
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-2-tests
+    command: >-
+      npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" exec -- vitest run
+      --reporter=verbose
+    timeoutMs: 120000
+    status: fail
+    durationMs: 374
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: batch-3-events-hooks-tests
+    command: >-
+      opencode run "Add tests for useEvents hook and nlpParser utility in the calendar-app at
+      D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app. Write src/hooks/useEvents.test.ts testing:
+      addEvent, updateEvent, deleteEvent, getEventsForDate, recurring event expansion, localStorage persistence. Write
+      src/utils/nlpParser.test.ts testing: natural language date parsing (tomorrow, next friday, every weekday), time
+      parsing, edge cases (empty string, invalid). Use vitest mock for localStorage. Do NOT modify the source files."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 300000
+    status: fail
+    durationMs: 1558
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-3-build
+    command: npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" run build
+    timeoutMs: 120000
+    status: fail
+    durationMs: 388
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-3-tests
+    command: >-
+      npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" exec -- vitest run
+      --reporter=verbose
+    timeoutMs: 120000
+    status: fail
+    durationMs: 385
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: batch-4-ui-polish
+    command: >-
+      opencode run "Polish the calendar-app UI at D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app.
+      1) Add smooth CSS transitions (opacity+transform ~300ms) when switching between Month/Week/Day/Year views in
+      App.tsx, 2) Fix dark mode contrast in EventModal and SearchBar so all text hits 4.5:1 contrast ratio, 3) Add
+      focus-visible ring styles for keyboard navigation across all interactive elements, 4) Quick-add bar focus+active
+      states matching the design system. Use existing CSS variables. No CSS frameworks. Minimal changes." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 300000
+    status: fail
+    durationMs: 1750
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-4
+    command: npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" run build
+    timeoutMs: 120000
+    status: fail
+    durationMs: 382
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: batch-5-update-readme
+    command: >-
+      opencode run "Update the README.md of the calendar-app at D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app. Add a Testing section with how to run tests, test structure, what is
+      covered. Update Getting Started section to include npm test. Update project structure table to reflect test files.
+      Keep the existing tone and format." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 120000
+    status: fail
+    durationMs: 1561
+    completedAt: '2026-07-08T04:17:11.933Z'
+  - id: verify-5
+    command: >-
+      npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" exec -- vitest run
+      --reporter=verbose && npm --prefix "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" run
+      build
+    timeoutMs: 120000
+    status: fail
+    durationMs: 391
+    completedAt: '2026-07-08T04:17:11.933Z'

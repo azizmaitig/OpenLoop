@@ -1,0 +1,164 @@
+planName: build-app
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: planning
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/STATE.md if present, otherwise infer project intent
+      from the working directory. This is a THROWAWAY hello-world app: a Vite + React + TypeScript single-page
+      application. Write a concise product spec to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md covering: goal (a runnable hello-world SPA),
+      users (n/a, throwaway), core features (MVP scope only â€” e.g. a counter component that increments on click,
+      rendered with React + Vite, builds clean, `bun test`/vitest green), out-of-scope (auth, routing, backend,
+      persistence, payments), tech-stack recommendation (Vite 5/6 + React 18/19 + TypeScript, vitest for tests), and
+      acceptance criteria (npm run build succeeds, tests pass, app renders the counter). Keep it under 400 lines. Exit 0
+      when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: research
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md. Research the recommended tech stack and the
+      top 3-5 risks/unknowns for this MVP (library choices, integration gotchas, perf ceilings). Use the websearch tool
+      and web fetch for CURRENT library docs (React 18 vs 19, Vite 5 vs 6, Bun vs npm, vitest setup) â€” evidence MUST
+      come from fetched docs, NOT from memory. Cite every source URL in research.md. Write findings to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/research.md: for each risk
+      give evidence (with source link), a recommended approach, and a fallback. Do NOT write code. Exit 0 when the file
+      is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: design
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/research.md. Produce a concrete technical design in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/design.md for the throwaway
+      Vite + React + TypeScript hello-world SPA (counter component): module/component breakdown (App, Counter component,
+      main entry), data model (local component state only), API surface (none â€” no backend), key algorithms (increment
+      handler), file layout (index.html, src/main.tsx, src/App.tsx, src/Counter.tsx, vite.config.ts, vitest config), and
+      a build/test strategy (vite build + vitest). Also note any design decisions needing an ADR. Do NOT write
+      application code. Exit 0 when the file is written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: design-critique
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/design.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md. Critique the design against the spec: missing
+      requirements, over-engineering, security or scalability gaps, and unclear interfaces. Write the verdict to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/design-critique.md with an
+      explicit APPROVE or REVISE decision and a prioritized list of issues (P0-P2). Do NOT modify any source files. Exit
+      0 when the file is written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior architecture reviewer. Stdout holds the design-critique.md content. Return JSON: { "passed":
+        boolean (true=APPROVE, false=REVISE), "reason": "markdown report with P0-P2 issues and whether design meets
+        spec", "confidence": 0.0-1.0 }.
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: code
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/design.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md. Implement the MVP (Vite + React + TypeScript
+      hello-world SPA with a counter component) inside D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test (work in a git worktree if one is provided via --dir;
+      otherwise create one with 'git worktree add' or commit to a feature branch). Scaffold the Vite project, create
+      src/App.tsx + src/Counter.tsx (increment on click), src/main.tsx, index.html, vite.config.ts, and a vitest test
+      for the counter. Follow the design faithfully. NON-GOALS: do not add features absent from spec.md, do not add
+      auth/payments/secrets handling unless explicitly in spec, do not refactor unrelated code, do not write tests here
+      (that is the test stage). Write a unified diff summary to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/code.diff. Exit 0 when implementation + code.diff are
+      written. Assumes the human has enabled L2 (source editing) before this run." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Re-read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/code.diff and the failing build/test output. Apply the
+      minimal fix to the MVP in D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test and
+      update D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/code.diff. Do not
+      expand scope beyond the failing concern. Exit 0 when fixed." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    maxRetries: 3
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: test
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Run the project's documented build + test suite for
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test (e.g. 'npm run build' + 'vitest
+      run' / 'bun test'). Capture results to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/test.log. For the throwaway Vite/React app this means
+      `vite build` succeeds and the counter vitest test passes. Exit 0 only if build and tests pass; otherwise exit
+      non-zero so the phase fails. Do NOT modify application code â€” only run the suite." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: review
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/code.diff and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/design.md. Perform a code review: correctness,
+      security, readability, and adherence to the design. Write findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/review.md with P0-P2 issues and a verdict. Do NOT
+      modify source. Exit 0 when the file is written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior code reviewer. Stdout holds review.md. Return JSON: { "passed": boolean, "reason": "markdown
+        review with P0-P2 issues and verdict", "confidence": 0.0-1.0 }.
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: evaluate
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/spec.md (acceptance criteria),
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/test.log, and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/review.md. Judge whether
+      the built Vite/React hello-world MVP satisfies the acceptance criteria (builds clean, counter test passes, app
+      renders) and is shippable. Write the verdict to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test/.build/evaluate.md (ADVISORY â€” does not block the run). Exit
+      0 when the file is written." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 120000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a quality evaluator. Stdout holds evaluate.md. Return JSON: { "passed": boolean, "reason": "markdown
+        verdict vs acceptance criteria, gaps, ship/no-ship recommendation", "confidence": 0.0-1.0 }.
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'
+  - id: verify
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Final non-LLM gate for D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test: re-run build + the FULL test suite and confirm exit 0. Also
+      confirm D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\first-test/.build/code.diff,
+      test.log, review.md, and evaluate.md all exist. Exit 0 only if build+tests pass; otherwise exit non-zero. This is
+      the hard gate â€” no LLM judgment, command exit code decides pass/fail." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\first-test"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 998798
+    completedAt: '2026-07-09T09:11:48.043Z'

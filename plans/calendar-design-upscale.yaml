@@ -1,0 +1,58 @@
+planName: calendar-design-upscale
+tasks:
+  - id: scan-reality
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\scan-reality.ps1" -TargetDir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 30000
+    status: pass
+    durationMs: 1564
+    completedAt: '2026-07-11T02:03:52.613Z'
+  - id: llm-design-audit
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\scan-reality.ps1" -TargetDir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 60000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a design audit specialist. You've been given the current state scan of the calendar-app's CSS. Key
+        findings so far: - 0 hardcoded hex colors (token migration complete) - 526 var() references to CSS custom
+        properties - 38 oklch() color definitions (dark theme tokens in App.css) - 7 raw transition durations not using
+        var(--duration-*) tokens - 68 [data-theme] selectors in App.css - App.tsx has 1 useCallback, 0 useMemo, 0
+        React.memo.
+
+        The complete design system (DESIGN.md) uses OKLCH tokens, system fonts, a neutral-utility palette with blue
+        accent, 4px spacing grid, and dark mode via [data-theme="dark"].
+
+        Your job: Produce a JSON audit of remaining improvement opportunities. Return: {
+          "passed": boolean,
+          "reason": "Markdown report with prioritized findings (P0-P3).
+            Cover each dimension:
+            1) CSS/DURATIONS — which 7 raw durations map to which token, exact lines + replacement commands
+            2) THEMING — are dark overrides in App.css necessary or can they be consolidated into index.css tokens?
+            3) PERFORMANCE — callback memoization gap analysis in App.tsx
+            4) ACCESSIBILITY — what WCAG gaps remain (check if DESIGN-AUDIT.md issues are still relevant)
+            5) CODE QUALITY — file size, naming conventions, organization
+            For each finding: file:line, current code, recommended fix.
+            End with a concrete plan ordered by impact.",
+      confidence: 0-1
+    status: pass
+    durationMs: 505
+    completedAt: '2026-07-11T02:03:52.613Z'
+  - id: fix-raw-durations
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\fix-raw-durations.ps1" -TargetDir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 30000
+    status: pass
+    durationMs: 369
+    completedAt: '2026-07-11T02:03:52.613Z'
+  - id: verify-build
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\run-build.ps1" -TargetDir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 25578
+    completedAt: '2026-07-11T02:03:52.613Z'

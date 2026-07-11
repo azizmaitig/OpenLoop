@@ -1,0 +1,191 @@
+planName: notes-app-build
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 29
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: planning
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\STATE.md if present, otherwise
+      infer project intent from the working directory. This is a THROWAWAY notes API: Express + TypeScript + bun
+      runtime, storing notes in-memory (array). Write a concise product spec to ..\loop-factory\notes\.build\spec.md
+      covering: goal (a runnable REST API for notes), core features (CRUD /notes endpoints, in-memory store, JSON
+      responses, health endpoint), out-of-scope (database, auth, frontend, persistence), tech stack (Express +
+      TypeScript + bun + vitest), acceptance criteria (bun test passes, GET /notes returns [], POST /notes creates a
+      note, GET /notes/:id returns it, DELETE /notes/:id removes it, server starts on port 3000). Keep under 400 lines.
+      Exit 0 when the file is written." --dir "..\loop-factory\notes"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 97170
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: research
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\spec.md. Research the
+      recommended tech stack and the top 3-5 risks/unknowns for this MVP (Express + TypeScript on bun, vitest for
+      testing, in-memory storage). Use the websearch tool and web fetch for CURRENT library docs — evidence MUST come
+      from fetched docs, NOT from memory. Cite every source URL. Write findings to
+      ..\loop-factory\notes\.build\research.md: for each risk give evidence (with source link), a recommended approach,
+      and a fallback. Do NOT write code. Exit 0 when the file is written." --dir "..\loop-factory\notes"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 120293
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: design
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\spec.md and
+      ..\loop-factory\notes\.build\research.md. Produce a concrete technical design in
+      ..\loop-factory\notes\.build\design.md for the throwaway Express + TypeScript notes API: route design
+      (GET/POST/DELETE /notes, GET /notes/:id, GET /health), data model (Note interface: id, title, content, createdAt),
+      file layout (src/server.ts, src/routes/notes.ts, src/types.ts, src/__tests__/notes.test.ts, tsconfig.json,
+      package.json), key algorithms (CRUD on in-memory array), error handling (404 for missing note, 400 for bad body).
+      Do NOT write application code. Exit 0 when the file is written." --dir "..\loop-factory\notes"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 66671
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: design-critique
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\design.md and
+      ..\loop-factory\notes\.build\spec.md. Critique the design against the spec: missing requirements,
+      over-engineering, security or scalability gaps, and unclear interfaces. Write the verdict to
+      ..\loop-factory\notes\.build\design-critique.md with an explicit APPROVE or REVISE decision and a prioritized list
+      of issues (P0-P2). Do NOT modify any source files. Exit 0 when the file is written." --dir "..\loop-factory\notes"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 115079
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: code
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\design.md and
+      ..\loop-factory\notes\.build\spec.md. Implement the MVP (Express + TypeScript notes API with in-memory CRUD)
+      inside ..\loop-factory\notes. Scaffold the project: create package.json with express + typescript + vitest
+      dependencies, tsconfig.json, src/server.ts (Express app on port 3000), src/types.ts (Note interface),
+      src/routes/notes.ts (GET/POST/DELETE /notes, GET /notes/:id, GET /health), and a vitest test at
+      src/__tests__/notes.test.ts covering all endpoints. Follow the design faithfully. NON-GOALS: do not add features
+      absent from spec.md, do not add auth/database/persistence, do not refactor unrelated code. Write a unified diff
+      summary to ..\loop-factory\notes\.build\code.diff. Exit 0 when implementation + code.diff are written. Writes
+      source files to the target directory — source editing is enabled." --dir "..\loop-factory\notes"
+    timeoutMs: 600000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Re-read ..\loop-factory\notes\.build\code.diff and the failing
+      build/test output. Apply the minimal fix to the MVP in ..\loop-factory\notes and update
+      ..\loop-factory\notes\.build\code.diff. Do not expand scope beyond the failing concern. Exit 0 when fixed." --dir
+      "..\loop-factory\notes"
+    maxRetries: 3
+    status: pass
+    durationMs: 181040
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location ..\loop-factory\notes; bun install;
+      Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location ..\loop-factory\notes; bun install
+      --force; Write-Host 'install-heal-ok'"
+    maxRetries: 3
+    status: pass
+    durationMs: 387
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: test
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Run the project's build + test suite for ..\loop-factory\notes
+      (bun run build + vitest run / bun test). Capture results to ..\loop-factory\notes\.build\test.log. Exit 0 only if
+      build and tests pass; otherwise exit non-zero. Do NOT modify application code." --dir "..\loop-factory\notes"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 96010
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: review
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\code.diff and
+      ..\loop-factory\notes\.build\design.md. Perform a code review: correctness, security, readability, and adherence
+      to the design. Write findings to ..\loop-factory\notes\.build\review.md with P0-P2 issues and a verdict. Do NOT
+      modify source. Exit 0 when the file is written." --dir "..\loop-factory\notes"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 79599
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: evaluate
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read ..\loop-factory\notes\.build\spec.md (acceptance criteria),
+      ..\loop-factory\notes\.build\test.log, and ..\loop-factory\notes\.build\review.md. Judge whether the built notes
+      API MVP satisfies the acceptance criteria (CRUD works, tests pass, server starts) and is shippable. Write the
+      verdict to ..\loop-factory\notes\.build\evaluate.md. Exit 0 when done." --dir "..\loop-factory\notes"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 97298
+    completedAt: '2026-07-09T10:17:57.499Z'
+  - id: verify
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Final non-LLM gate for ..\loop-factory\notes: re-run build + the
+      FULL test suite and confirm exit 0. Also confirm ..\loop-factory\notes\.build\spec.md, design.md, code.diff,
+      test.log, review.md, and evaluate.md all exist. Exit 0 only if build+tests pass; otherwise exit non-zero. This is
+      the hard gate — command exit code decides pass/fail." --dir "..\loop-factory\notes"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 123456
+    completedAt: '2026-07-09T11:56:40.000Z'
+audit:
+  runAt: '2026-07-09T13:51:13.771Z'
+  planPath: 'plans/notes-app-build.yaml'
+  axes:
+    contradiction:
+      verdict: 'pass'
+      findings:
+        - severity: 'warning'
+          message: 'Phase ''planning'' excludes auth — verify this is intentional for the use case'
+          phase: 'planning'
+    dependency:
+      verdict: 'pass'
+      findings: []
+    guardrails:
+      verdict: 'pass'
+      findings:
+        - severity: 'warning'
+          message: 'Task ''planning'' missing healCommand — will fail terminally on error'
+          phase: 'planning'
+        - severity: 'warning'
+          message: 'Task ''research'' missing healCommand — will fail terminally on error'
+          phase: 'research'
+        - severity: 'warning'
+          message: 'Task ''design'' missing healCommand — will fail terminally on error'
+          phase: 'design'
+        - severity: 'warning'
+          message: 'Task ''design-critique'' missing healCommand — will fail terminally on error'
+          phase: 'design-critique'
+        - severity: 'warning'
+          message: 'Task ''test'' missing healCommand — will fail terminally on error'
+          phase: 'test'
+        - severity: 'warning'
+          message: 'Task ''review'' missing healCommand — will fail terminally on error'
+          phase: 'review'
+        - severity: 'warning'
+          message: 'Task ''evaluate'' missing healCommand — will fail terminally on error'
+          phase: 'evaluate'
+        - severity: 'warning'
+          message: 'Task ''verify'' missing healCommand — will fail terminally on error'
+          phase: 'verify'
+    timeout:
+      verdict: 'pass'
+      findings: []
+    verify:
+      verdict: 'pass'
+      findings: []
+    slop:
+      verdict: 'pass'
+      findings:
+        - severity: 'info'
+          message: 'console.log in src\server.ts:14'
+          file: 'src\server.ts'
+    production:
+      verdict: 'pass'
+      findings: []
+  summary:
+    total_checks: '7'
+    passed: '7'
+    failed: '0'
+    verdict: 'Clean — no issues found'
+

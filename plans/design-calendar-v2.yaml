@@ -1,0 +1,66 @@
+planName: design-calendar-v2
+tasks:
+  - id: polish-9a-tokens-darkmode
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-9a-tokens-darkmode.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: error
+    durationMs: 900009
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: verify-9a
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3090
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: polish-9b-interaction-a11y
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-9b-interaction-a11y.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 259869
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: verify-9b
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3121
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: polish-9c-console-slop
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-9c-console-slop.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 178766
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: verify-9c
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3003
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: polish-9d-critique-document
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-9d-critique-document.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 441960
+    completedAt: '2026-07-08T23:42:04.496Z'
+  - id: verify-9d
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2880
+    completedAt: '2026-07-08T23:42:04.496Z'

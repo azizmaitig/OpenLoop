@@ -1,0 +1,142 @@
+planName: design-calendar-best-skills
+tasks:
+  - id: batch-1-audit-and-init
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-1-audit.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 131586
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-1
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3088
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-2-design-system
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-2-design-system.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 385805
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-2
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3155
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-3-extract-month-view
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-3-extract-month-view.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 62652
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-3
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2846
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-4-views-polish
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-4-views-polish.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 290743
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-4
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2841
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-5-modals-polish
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-5-modals-polish.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 167095
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-5
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2853
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-6-animate
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-6-animate.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 234687
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-6
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2956
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-7-colorize-darkmode
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-7-colorize-darkmode.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 122995
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-7
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2879
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-8-a11y-responsive
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-8-a11y-responsive.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 261709
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-8
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2905
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-9-final-polish
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-9-final-polish.txt
+    timeoutMs: 1200000
+    status: error
+    durationMs: 1200009
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-9
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2909
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: batch-10-documentation
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\phase-10-documentation.txt
+    timeoutMs: 1200000
+    status: pass
+    durationMs: 183267
+    completedAt: '2026-07-08T16:18:39.042Z'
+  - id: verify-10
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 2913
+    completedAt: '2026-07-08T16:18:39.042Z'
