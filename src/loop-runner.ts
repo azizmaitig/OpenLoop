@@ -9,9 +9,9 @@
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
-import { StateMachine } from './state-machine.js';
-import { createInitialState, updatePhaseResult } from './state.js';
-import { loadPlugins, executeBeforeLoop, executeAfterLoop } from './plugins.js';
+import { createLoopContext } from './loop-context.js';
+import { updatePhaseResult } from './state.js';
+import { executeBeforeLoop, executeAfterLoop } from './plugins.js';
 import type { Plugin } from './plugins.js';
 import { getPlanDoc } from './plan-executor.js';
 import { saveCheckpoint, clearCheckpoint, loadCheckpoint, hasValidCheckpoint } from './checkpoint.js';
@@ -128,12 +128,8 @@ function resolveHardcoded(allPassed: boolean, iteration: number, maxIterations: 
 // ── Main loop runner ────────────────────────────────────────────────────────
 
 async function runLoop(config: LoopConfig): Promise<number> {
-  const sm = new StateMachine();
-  let state = createInitialState(config);
-  setCurrentState(state);
-
-  // Load plugins once (v2: no plugins → v1 behavior)
-  const plugins = await loadPlugins(config);
+  const { sm, state: loopCtxState, plugins } = await createLoopContext(config);
+  let state = loopCtxState;
 
   // ── Checkpoint resume prompt ──
   let resume = false;

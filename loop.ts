@@ -22,6 +22,7 @@ import { createInterface } from 'node:readline';
 
 import type { LoopConfig, LoopState } from './src/types.js';
 import { Daemon } from './src/daemon.js';
+import { runTick } from './src/daemon-tick.js';
 import { initProject } from './src/init.js';
 import { parseArgs, printHelp, resolvePhases } from './src/cli.js';
 import type { ParsedArgs } from './src/cli.js';
@@ -169,8 +170,7 @@ async function main(): Promise<void> {
     if (!config.daemon) {
       config.daemon = { intervalMs: 60000, port: 3099 };
     }
-    const daemon = new Daemon(config.daemon.port);
-    await daemon.runIntervalTick(config);
+    await runTick(config);
     return;
   }
 
