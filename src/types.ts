@@ -17,6 +17,12 @@ export interface PhaseDef {
   produces?: string;
   /** If true, the produces file must be non-empty. */
   producedMustHaveContent?: boolean;
+  /** IDs of phases that must complete before this one runs (parallel DAG). */
+  dependsOn?: string[];
+  /** References a composite id for atomic composite expansion. Internal use. */
+  use?: string;
+  /** Marker set by plan-executor when expanding an atomic composite. */
+  atomicComposite?: boolean;
 }
 
 export interface Judgment {
@@ -88,11 +94,25 @@ export interface PlanYamlTask {
   produces?: string;
   /** If true, the produces file must be non-empty (default: false = existence check only). */
   producedMustHaveContent?: boolean;
+  /** IDs of sibling tasks that must complete before this one runs. */
+  dependsOn?: string[];
+  /** References a composite id declared in the top-level composites block. */
+  use?: string;
+}
+
+/** A reusable composite phase sequence defined in a plan YAML. */
+export interface CompositeDef {
+  id: string;
+  phases: PlanYamlTask[];
+  /** If true, the composite is inlined as a single atomic phase (one command, one eval). */
+  atomic?: boolean;
 }
 
 export interface PlanYamlDoc {
   planName: string;
   tasks: PlanYamlTask[];
+  /** Optional reusable composite phase sequences. */
+  composites?: CompositeDef[];
 }
 
 export interface CheckpointState {

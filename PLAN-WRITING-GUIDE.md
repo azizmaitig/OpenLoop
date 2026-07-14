@@ -75,12 +75,83 @@ That is the entire contract. `planName` + a list of tasks, each with a unique `i
 | `tasks[].produces` | no | — | **Artifact gate.** Path to a file this task MUST produce. After the command exits 0, the executor checks this file exists and fails the phase if missing. Catches silent failures where the LLM exits 0 without producing the expected artifact. |
 | `tasks[].producedMustHaveContent` | no | `false` | When `true`, the `produces` file must also be non-empty (zero-length file fails the gate). |
 
-Do **not** author `status`, `durationMs`, `completedAt`, or `confidence` by hand — the
-executor owns them.
+Do **not** author `status`, `durationMs`, `completedAt`, `confidence`, or `dependsOn` by
+hand (except `dependsOn` — see §4A) — the executor owns the rest.
 
 ---
 
-## 4. LLM judgment contract
+## 4A. Parallel phases via `dependsOn` (Feature A)
+
+When a task declares `dependsOn:`, the executor builds a dependency DAG at runtime.
+Phases whose dependencies are all satisfied run **concurrently** in the same layer.
+A layer waits for all its phases before proceeding to the next.
+
+```yaml
+planName: parallel-example
+tasks:
+  - id: checkout
+    command: git clone ...
+  - id: lint
+    command: bun run lint
+    dependsOn: [checkout]
+  - id: test
+    command: bun run test
+    dependsOn: [checkout]
+  - id: report
+    command: ./merge-reports.sh
+    dependsOn: [lint, test]
+```
+
+In this plan `lint` and `test` run concurrently after `checkout`. If either fails,
+the sibling is aborted via `AbortController` and the layer fails immediately.
+
+**Rules:**
+- `dependsOn` references other task `id`s in the same plan.
+- Reference a non-existent `id` → executor throws at plan load.
+- Circular dependencies → executor throws at plan load.
+- If **no task** has `dependsOn`, phases run sequentially as before.
+- Phases with `dependsOn: []` (explicitly empty) are treated as having no
+  dependencies and can group with other independent phases in layer 0.
+
+## 4B. Reusable composite sequences (Feature B)
+
+Plan YAML can define reusable phase sequences under a top-level `composites:` block.
+A task references a composite via `use:`.
+
+```yaml
+planName: composite-example
+composites:
+  - id: build-and-test
+    phases:
+      - id: compile
+        command: bun run build
+        timeoutMs: 120000
+      - id: test
+        command: bun run test
+    atomic: true        # run all sub-phases as ONE shell command + ONE LLM eval
+
+tasks:
+  - id: setup
+    command: echo "ready"
+  - id: do-build
+    command: placeholder   # overridden by the composite
+    use: build-and-test
+```
+
+**Atomic (`atomic: true`):** The sub-phase commands are joined with `&&` and
+executed as a single `PhaseDef`. One shell invocation, one LLM judgment —
+the entire sequence is treated as one unit by the loop state machine.
+
+**Non-atomic (`atomic: false` or omitted):** The composite is expanded inline:
+each sub-phase becomes its own task with a prefix id
+(`<task-id>:<sub-phase-id>`). Normal phase-level granularity applies
+(hooks, healing, checkpoint per sub-phase).
+
+**Unknown `use:` id** → executor throws at plan load.
+
+---
+
+## 5. LLM judgment contract
 
 When a task has `llm:`, the prompt **must instruct the model to return**:
 
