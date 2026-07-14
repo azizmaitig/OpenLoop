@@ -6,6 +6,7 @@
 import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, LoopState, CompositeDef } from './types.js';
 import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
+import { checkPlanAgainstConstitution } from './constitution.js';
 
 let activePlanPath = '';
 let activePlanDoc: PlanYamlDoc | null = null;
@@ -78,6 +79,16 @@ export function expandComposites(
 export async function beforeLoop(planPath: string, resume?: boolean): Promise<PhaseDef[]> {
   activePlanPath = planPath;
   const doc = await parsePlanYaml(planPath);
+
+  // Constitution pre-flight gate — borrowed spec-kit concept.
+  const violations = checkPlanAgainstConstitution(doc);
+  if (violations.length > 0) {
+    const lines = violations
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
+  }
+
   activePlanDoc = doc;
 
   let tasks = doc.tasks;
