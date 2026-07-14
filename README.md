@@ -28,19 +28,23 @@ Agents don't run once — they **loop**. But naive loops are brittle: a crash lo
 
 ## Features
 
-- **4-state finite state machine** — flat lookup table, no OOP sprawl, single source of truth for transitions (`src/transition.ts`).
-- **Plan-driven execution** — point `--plan` at a `.plan.yaml`; tasks map to phases, results write back on completion.
-- **Daemon + live dashboard** — HTTP/WS server with a real-time SPA, task queue, and metrics (`GET /state`, `/api/history`, `/api/metrics`).
-- **MCP & LLM tool-use** — execute phases via MCP (JSON-RPC 2.0 over stdio) or an LLM controller (`--llm <server,tool>`). Backends: OpenAI, Anthropic, and custom/Ollama endpoints.
-- **Triggers** — full cron expressions (`*/5 * * * *`, `N-M`, `N,M`) and debounced file-watch that auto-moves processed files.
-- **Multi-loop orchestration** — one daemon supervises many concurrent child loops from `_loops.yaml` or `--plan --cron`, with priority-based collision detection.
-- **Auto-heal** — `healCommand` + `maxRetries` on verify tasks, run in an isolated git worktree.
-- **Checkpoint crash recovery** — `.checkpoint.json` after every phase; plan YAML stays pristine on crash.
-- **Budget guard** — daily run counter; report-only at 80%, stop at 100%.
-- **Plugin system** — 5 lifecycle hook points (`beforeLoop` / `afterLoop` / `onPhaseStart` / `onPhaseEnd` / `onError`); dynamically imported modules.
+The architecture is **loops, by design** — they stack and survive, rather than a fragile `while (true)`.
+
+- **Deterministic state machine** — every transition is explicit (`init → run → verify → done`, with a `LOOP` edge back to `init`) and owned by a single flat lookup table (`src/transition.ts`), so unexpected repetition is a traceable bug, not a mystery.
+- **Bounded and continuous loops** — run as a one-shot bounded loop (capped at 20 iterations) or a perpetual daemon driven by `setInterval` that never self-terminates (only `SIGINT`/`SIGTERM` stops it).
+- **Crash recovery by design** — a `.checkpoint.json` is written after every phase; a crashed run resumes exactly where it left off, and the plan YAML is mutated only on full success so it never corrupts.
+- **Concurrent multi-loop orchestration** — one daemon supervises many child loops from `_loops.yaml` or `--plan --cron`, with priority-based collision detection to avoid conflicting runs (`src/collision.ts`).
+- **Self-healing in isolation** — verify tasks with `healCommand` re-run a fix up to `maxRetries` inside a disposable git worktree, keeping the main branch clean.
+- **Scheduled and event-driven triggers** — full cron expressions (`*/5 * * * *`, `N-M`, `N,M`) and a debounced file-watch that auto-moves processed plans.
+- **Plan-driven execution** — point `--plan` at a `.plan.yaml`; tasks map to phases (with `dependsOn` DAG ordering) and results write back on completion.
+- **MCP & LLM tool-use** — execute phases over MCP (JSON-RPC 2.0 via stdio) or an LLM controller (`--llm <server,tool>`); backends: OpenAI, Anthropic, OpenCode, and custom/Ollama endpoints.
+- **Advisory LLM validator gate** — grade phase output against a rubric (`validator.criteria`); fail-open and never hard-fails, with optional command retry on failure.
+- **Budget guardrails** — a daily run counter flips the loop to report-only at 80% of budget and stops it at 100%.
+- **Daemon + live dashboard** — HTTP/WS server with a real-time SPA, FIFO task queue, and metrics (`GET /state`, `/api/history`, `/api/metrics`).
+- **Plugin system** — five lifecycle hooks (`beforeLoop` / `afterLoop` / `onPhaseStart` / `onPhaseEnd` / `onError`) via dynamically imported modules.
 - **Maker/checker plugin** — dual-phase execution with LLM verification, confidence scoring, and retry.
 - **Memory hooks** — optional `agentmemory` integration (episodic save, health pulse, lesson extraction).
-- **Zero build step** — Bun executes TypeScript directly. No transpile, no bundler.
+- **Zero build step** — Bun executes TypeScript directly; no transpile, no bundler.
 
 ---
 
@@ -62,7 +66,7 @@ bun install          # installs the single runtime dep: js-yaml v5
 ## Quick start
 
 ```bash
-# 1. scaffold the convention files (STATE.md, LOOP.md, AGENTS.md)
+# 1. scaffold the convention files (STATE.md, AGENTS.md)
 bun run loop.ts init
 
 # 2. run the built-in demo (scan → analyze → report), one iteration
