@@ -5,6 +5,8 @@ import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { TaskQueue } from './task-queue.js';
 import { parseYaml } from './yaml.js';
 import { isSafePath } from './shell.js';
+import { remainingRuns as budgetRemaining } from './budget.js';
+import { comparePriority } from './collision.js';
 
 let childIdCounter = 0;
 function generateChildId(): string {
@@ -12,13 +14,36 @@ function generateChildId(): string {
   return `child-${Date.now().toString(36)}-${childIdCounter}`;
 }
 
+export interface OrchestratorConfig {
+  maxConcurrentLoops?: number;
+  avgCostPerLoop?: number;
+  getRemainingRuns?: () => Promise<number>;
+}
+
+const DEFAULT_MAX_CONCURRENT = 4;
+const DEFAULT_AVG_COST = 1;
+
 export class LoopOrchestrator {
   private children = new Map<string, ChildLoopState>();
+  private pendingQueue: string[] = [];
+  private _maxConcurrentLoops: number;
+  private _avgCostPerLoop: number;
+  private _getRemainingRuns: () => Promise<number>;
 
   constructor(
     private taskQueue: TaskQueue,
     private triggerManager: TriggerManager,
-  ) {}
+    config?: OrchestratorConfig,
+  ) {
+    this._maxConcurrentLoops = config?.maxConcurrentLoops ?? DEFAULT_MAX_CONCURRENT;
+    this._avgCostPerLoop = config?.avgCostPerLoop ?? DEFAULT_AVG_COST;
+    this._getRemainingRuns = config?.getRemainingRuns ?? (() => budgetRemaining());
+  }
+
+  /** Expose the pending queue length for observability (names in queue). */
+  get queuedChildNames(): string[] {
+    return this.pendingQueue.map(id => this.children.get(id)?.name ?? id);
+  }
 
   /** Set by Daemon to trigger queue processing when a child trigger enqueues a task. */
   onTaskEnqueued: (() => void) | null = null;
@@ -54,6 +79,10 @@ export class LoopOrchestrator {
       this.deregisterChildTriggers(id);
     }
 
+    // Also remove from pending queue if queued
+    const qIdx = this.pendingQueue.indexOf(id);
+    if (qIdx !== -1) this.pendingQueue.splice(qIdx, 1);
+
     this.children.delete(id);
     return true;
   }
@@ -78,23 +107,27 @@ export class LoopOrchestrator {
     if (!child) return 'not_found';
     if (child.status === 'running') return 'already_running';
 
-    child.status = 'running';
-    child.startedAt = new Date().toISOString();
-    child.error = undefined;
+    // If already queued, this is a no-op; it stays in queue
+    if (child.status === 'queued') return 'ok';
 
-    this.registerChildTriggers(id);
+    const cap = await this.effectiveCap();
 
-    // Enqueue an initial task for the plan
-    if (child.planPath && !isSafePath(child.planPath)) {
-      child.status = 'stopped';
-      child.error = `Invalid planPath: "${child.planPath}" contains unsafe characters`;
-      return 'not_found';
+    // Count currently running children
+    let runningCount = 0;
+    for (const c of this.children.values()) {
+      if (c.status === 'running') runningCount++;
     }
-    const enqueueCmd = child.planPath ? `bun run loop.ts start --plan "${child.planPath}" --max-iterations 1` : child.name;
-    // ponytail: subprocess overhead acceptable until measured
-    this.taskQueue.enqueue(enqueueCmd, { timeoutMs: 60000 });
-    this.onTaskEnqueued?.();
 
+    if (runningCount >= cap) {
+      // At capacity — queue the child
+      child.status = 'queued';
+      child.error = undefined;
+      this.pendingQueue.push(id);
+      return 'ok';
+    }
+
+    await this.doStartChild(child);
+    await this.drainQueue();
     return 'ok';
   }
 
@@ -105,6 +138,9 @@ export class LoopOrchestrator {
 
     child.status = 'stopped';
     this.deregisterChildTriggers(id);
+
+    // A slot freed — try to start queued children
+    await this.drainQueue();
     return 'ok';
   }
 
@@ -120,6 +156,14 @@ export class LoopOrchestrator {
       const content = readFileSync(resolvedPath, 'utf-8');
       const config = parseLoopsYaml(content);
 
+      // Apply top-level orchestrator config from YAML (if present)
+      if (config.maxConcurrentLoops !== undefined) {
+        this._maxConcurrentLoops = config.maxConcurrentLoops;
+      }
+      if (config.avgCostPerLoop !== undefined) {
+        this._avgCostPerLoop = config.avgCostPerLoop;
+      }
+
       for (const def of config.loops) {
         const id = this.addChild(def);
         console.log(`[orchestrator] Registered child loop "${def.name}" (${id})`);
@@ -134,6 +178,74 @@ export class LoopOrchestrator {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Calculate the effective concurrency cap:
+   *   effectiveCap = min(maxConcurrentLoops, floor(remainingRuns / avgCostPerLoop))
+   */
+  private async effectiveCap(): Promise<number> {
+    const remaining = await this._getRemainingRuns();
+    const maxByBudget = Math.floor(remaining / this._avgCostPerLoop);
+    return Math.min(this._maxConcurrentLoops, Math.max(0, maxByBudget));
+  }
+
+  /**
+   * Actually start a child: set status, register triggers, enqueue task.
+   * Assumes caller has already validated the child can start.
+   */
+  private async doStartChild(child: ChildLoopState): Promise<void> {
+    child.status = 'running';
+    child.startedAt = new Date().toISOString();
+    child.error = undefined;
+
+    this.registerChildTriggers(child.id);
+
+    if (child.planPath && !isSafePath(child.planPath)) {
+      child.status = 'stopped';
+      child.error = `Invalid planPath: "${child.planPath}" contains unsafe characters`;
+      return;
+    }
+
+    const enqueueCmd = child.planPath
+      ? `bun run loop.ts start --plan "${child.planPath}" --max-iterations 1`
+      : child.name;
+    this.taskQueue.enqueue(enqueueCmd, { timeoutMs: 60000 });
+    this.onTaskEnqueued?.();
+  }
+
+  /**
+   * Process the pending queue: sort queued children by priority (highest first)
+   * and start as many as fit within the effective cap.
+   */
+  private async drainQueue(): Promise<void> {
+    if (this.pendingQueue.length === 0) return;
+
+    const cap = await this.effectiveCap();
+
+    // Count currently running
+    let runningCount = 0;
+    for (const c of this.children.values()) {
+      if (c.status === 'running') runningCount++;
+    }
+
+    const available = cap - runningCount;
+    if (available <= 0) return;
+
+    // Sort pending queue by priority descending
+    this.pendingQueue.sort((a, b) => {
+      const nameA = this.children.get(a)?.name ?? '';
+      const nameB = this.children.get(b)?.name ?? '';
+      return comparePriority(nameA, nameB);
+    });
+
+    const toStart = this.pendingQueue.splice(0, available);
+    for (const id of toStart) {
+      const child = this.children.get(id);
+      if (child && child.status === 'queued') {
+        await this.doStartChild(child);
+      }
+    }
+  }
 
   private registerChildTriggers(childId: string): void {
     const child = this.children.get(childId);
@@ -207,5 +319,9 @@ function parseLoopsYaml(content: string): LoopsConfig {
     if (triggers.length > 0) def.triggers = triggers;
     loops.push(def);
   }
-  return { loops };
+
+  const result: LoopsConfig = { loops };
+  if (typeof doc.maxConcurrentLoops === 'number') result.maxConcurrentLoops = doc.maxConcurrentLoops;
+  if (typeof doc.avgCostPerLoop === 'number') result.avgCostPerLoop = doc.avgCostPerLoop;
+  return result;
 }

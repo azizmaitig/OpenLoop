@@ -517,6 +517,129 @@ loops:
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  describe("LoopOrchestrator — bounded concurrency", () => {
+    test("(a) caps concurrent children at maxConcurrentLoops", async () => {
+      const tq = new TaskQueue();
+      const tm = new TriggerManager();
+      const orch = new LoopOrchestrator(tq, tm, { maxConcurrentLoops: 2, getRemainingRuns: async () => 100 });
+
+      const id1 = orch.addChild({ name: "c1", planPath: "./p1.yaml" });
+      const id2 = orch.addChild({ name: "c2", planPath: "./p2.yaml" });
+      const id3 = orch.addChild({ name: "c3", planPath: "./p3.yaml" });
+      const id4 = orch.addChild({ name: "c4", planPath: "./p4.yaml" });
+
+      await orch.startChild(id1);
+      await orch.startChild(id2);
+      await orch.startChild(id3);
+      await orch.startChild(id4);
+
+      expect(orch.getChildState(id1)!.status).toBe("running");
+      expect(orch.getChildState(id2)!.status).toBe("running");
+      expect(orch.getChildState(id3)!.status).toBe("queued");
+      expect(orch.getChildState(id4)!.status).toBe("queued");
+
+      // Stop one running → next queued starts
+      await orch.stopChild(id1);
+      expect(orch.getChildState(id3)!.status).toBe("running");
+      expect(orch.getChildState(id4)!.status).toBe("queued");
+
+      await orch.stopChild(id2);
+      expect(orch.getChildState(id4)!.status).toBe("running");
+    });
+
+    test("(b) budget clamp reduces effective cap", async () => {
+      const tq = new TaskQueue();
+      const tm = new TriggerManager();
+      // remainingRuns=3, maxConcurrentLoops=10, avgCostPerLoop=2 → effectiveCap = floor(3/2) = 1
+      let remaining = 3;
+      const orch = new LoopOrchestrator(tq, tm, {
+        maxConcurrentLoops: 10,
+        avgCostPerLoop: 2,
+        getRemainingRuns: async () => remaining,
+      });
+
+      const id1 = orch.addChild({ name: "c1", planPath: "./p1.yaml" });
+      const id2 = orch.addChild({ name: "c2", planPath: "./p2.yaml" });
+
+      await orch.startChild(id1);
+      await orch.startChild(id2);
+
+      // effectiveCap=1 → only first starts, second queues
+      expect(orch.getChildState(id1)!.status).toBe("running");
+      expect(orch.getChildState(id2)!.status).toBe("queued");
+    });
+
+    test("(c) pause+queue when budget exhausted, resumes on recovery", async () => {
+      const tq = new TaskQueue();
+      const tm = new TriggerManager();
+      let remaining = 0;
+      const orch = new LoopOrchestrator(tq, tm, {
+        maxConcurrentLoops: 5,
+        avgCostPerLoop: 1,
+        getRemainingRuns: async () => remaining,
+      });
+
+      const id1 = orch.addChild({ name: "c1", planPath: "./p1.yaml" });
+      const id2 = orch.addChild({ name: "c2", planPath: "./p2.yaml" });
+
+      // Budget exhausted → both queue
+      await orch.startChild(id1);
+      expect(orch.getChildState(id1)!.status).toBe("queued");
+
+      await orch.startChild(id2);
+      expect(orch.getChildState(id2)!.status).toBe("queued");
+
+      // Budget recovers
+      remaining = 10;
+
+      // Starting a 3rd triggers drainQueue which processes all queued
+      const id3 = orch.addChild({ name: "c3", planPath: "./p3.yaml" });
+      await orch.startChild(id3);
+      expect(orch.getChildState(id3)!.status).toBe("running");
+      // id1 and id2 should have been drained from queue
+      expect(orch.getChildState(id1)!.status).toBe("running");
+      expect(orch.getChildState(id2)!.status).toBe("running");
+    });
+
+    test("(d) priority ordering: higher-priority queued child starts first", async () => {
+      const tq = new TaskQueue();
+      const tm = new TriggerManager();
+      const orch = new LoopOrchestrator(tq, tm, { maxConcurrentLoops: 1 });
+
+      const lowPri = orch.addChild({ name: "Daily Triage", planPath: "./low.yaml" });
+      const highPri = orch.addChild({ name: "CI Sweeper", planPath: "./high.yaml" });
+
+      await orch.startChild(lowPri);
+      await orch.startChild(highPri);
+
+      expect(orch.getChildState(lowPri)!.status).toBe("running");
+      expect(orch.getChildState(highPri)!.status).toBe("queued");
+
+      // Stop low-pri → the high-pri one (queued) should start before any lower-priority
+      await orch.stopChild(lowPri);
+      expect(orch.getChildState(highPri)!.status).toBe("running");
+
+      // Now stop and test reverse order
+      await orch.stopChild(highPri);
+
+      const midPri = orch.addChild({ name: "PR Babysitter", planPath: "./mid.yaml" });
+      // highPri takes the only slot; midPri and lowPri queue
+      await orch.startChild(highPri);
+      await orch.startChild(midPri);
+      await orch.startChild(lowPri);
+
+      // Only 1 slot used by highPri, rest queued
+      expect(orch.getChildState(highPri)!.status).toBe("running");
+      expect(orch.getChildState(midPri)!.status).toBe("queued");
+      expect(orch.getChildState(lowPri)!.status).toBe("queued");
+
+      // Stop the running one → drainQueue: midPri (80) starts before lowPri (20)
+      await orch.stopChild(highPri);
+      expect(orch.getChildState(midPri)!.status).toBe("running");
+      expect(orch.getChildState(lowPri)!.status).toBe("queued");
+    });
+  });
+
   test("Daemon starts with --loops-config and auto-starts enabled children", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "daemon-loops-"));
     const yamlPath = join(tmpDir, "loops.yaml");

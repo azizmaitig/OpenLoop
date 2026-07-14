@@ -172,7 +172,7 @@ export interface HistoryListResponse {
 
 // ── Multi-loop orchestration ──────────────────────────────────────────────────
 
-export type ChildLoopStatus = 'stopped' | 'running' | 'error';
+export type ChildLoopStatus = 'stopped' | 'running' | 'error' | 'queued';
 
 export type TriggerDef =
   | { type: 'cron'; expression: string; fireCount?: number; lastFiredAt?: string }
@@ -214,6 +214,10 @@ export type StopChildResult = 'ok' | 'not_found' | 'not_running';
 
 export interface LoopsConfig {
   loops: ChildLoopDef[];
+  /** Max number of concurrently running child loops (default 4). */
+  maxConcurrentLoops?: number;
+  /** Estimated cost per loop iteration for budget-based concurrency clamping (default 1). */
+  avgCostPerLoop?: number;
 }
 
 // ── LLM provider (v7) ────────────────────────────────────────────────────────

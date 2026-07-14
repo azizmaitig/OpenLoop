@@ -48,6 +48,27 @@ function patternFromFilename(filename: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Priority helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up the numeric priority for a loop/pattern name. Unknown names get 0.
+ */
+export function getPriority(name: string): number {
+  return PRIORITY_TABLE[name] ?? 0;
+}
+
+/**
+ * Compare two loop names by priority. Returns a sort-compatible value:
+ *   negative  → a has higher priority than b
+ *   zero      → equal priority
+ *   positive  → b has higher priority than a
+ */
+export function comparePriority(a: string, b: string): number {
+  return getPriority(b) - getPriority(a);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
