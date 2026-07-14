@@ -1,0 +1,71 @@
+planName: enhance-dashboard
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 28
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: ux-audit
+    command: >-
+      opencode run "Read src/dashboard/App.tsx and src/dashboard/screens/. Audit the UI for: 1) visual polish issues  2)
+      layout problems 3) missing features a dev dashboard needs (live metrics, status badges, etc). Write findings to
+      .build/ux-audit.md. Exit 0." --dir D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-merged
+    timeoutMs: 180000
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 15460
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: code-audit
+    command: >-
+      opencode run "Read src/dashboard/App.tsx and src/dashboard/components/TabNav.tsx and src/dashboard/hooks/. Audit
+      code quality: 1) unnecessary complexity  2) naming issues 3) type safety gaps  4) dead code. Write findings to
+      .build/code-audit.md. Exit 0." --dir D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-merged
+    timeoutMs: 180000
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 15968
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: ux-implement
+    command: >-
+      opencode run "Read .build/ux-audit.md. Implement the top 3 UX improvements in src/dashboard/. Modify the relevant
+      TSX/CSS files directly. Keep changes focused. Write a summary of what changed to .build/ux-changes.md. Exit 0."
+      --dir D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-merged
+    timeoutMs: 300000
+    produces: .build/ux-changes.md
+    dependsOn:
+      - ux-audit
+    status: fail
+    durationMs: 13726
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: code-implement
+    command: >-
+      opencode run "Read .build/code-audit.md. Fix the top 3 code quality issues in src/dashboard/. Modify files
+      directly. Write a summary of what changed to .build/code-changes.md. Exit 0." --dir D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-merged
+    timeoutMs: 300000
+    produces: .build/code-changes.md
+    dependsOn:
+      - code-audit
+    status: fail
+    durationMs: 12616
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: verify-build
+    command: cd D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-merged && npx tsc --noEmit
+    timeoutMs: 120000
+    dependsOn:
+      - ux-implement
+      - code-implement
+    status: fail
+    durationMs: 60892
+    completedAt: '2026-07-14T02:55:45.290Z'
+  - id: report
+    command: type .build\ux-changes.md && echo. && type .build\code-changes.md
+    timeoutMs: 10000
+    dependsOn:
+      - verify-build
+    status: fail
+    durationMs: 60892
+    completedAt: '2026-07-14T02:55:45.290Z'

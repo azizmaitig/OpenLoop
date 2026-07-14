@@ -40,6 +40,16 @@ export async function countRunsLast24h(baseDir: string = '.'): Promise<number> {
 }
 
 /**
+ * Return the remaining run budget (dailyCap - runsToday).
+ * Returns 0 if the budget is exhausted or negative.
+ */
+export async function remainingRuns(baseDir: string = '.'): Promise<number> {
+  const cap = getDailyCap();
+  const used = await countRunsLast24h(baseDir);
+  return Math.max(0, cap - used);
+}
+
+/**
  * Check the daily run budget.
  * - ok:         runs < 80% of cap
  * - report_only: runs >= 80% but < 100% of cap

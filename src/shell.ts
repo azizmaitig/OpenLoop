@@ -107,26 +107,37 @@ function buildShellArgs(command: string): { cmd: string[]; shell: boolean; clean
  */
 export async function runCommand(command: string, opts?: RunOptions): Promise<RunResult> {
   const startTime = Date.now();
-  const { cmd: args, shell, cleanup } = buildShellArgs(command);
+  const { cmd: args, cleanup } = buildShellArgs(command);
 
   try {
-    // Use spawnSync to work around Bun bug #24690: Bun.spawn with stdout:'pipe'
-    // returns empty output inside `bun test` on GitHub Actions.
-    const proc = Bun.spawnSync(args, {
+    const proc = Bun.spawn(args, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: false,
       cwd: opts?.cwd,
       env: { ...process.env },
     });
 
+    // Read full output while process runs, then write to terminal
+    // so both programmatic callers and the user see the output.
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
     cleanup?.();
 
+    // Show output in parent terminal after capture
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+
     return {
-      exitCode: proc.exitCode,
-      stdout: proc.stdout?.toString().trim() ?? '',
-      stderr: proc.stderr?.toString().trim() ?? '',
+      exitCode,
+      stdout: stdout.trim(),
+      stderr: stderr.trim(),
       durationMs: Date.now() - startTime,
     };
   } catch (err) {
+    cleanup?.();
     return {
       exitCode: -1,
       stdout: '',

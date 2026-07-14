@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 // These imports will FAIL — ../src/plan-executor.js does not exist yet
 // PlanYamlTask and PlanYamlDoc are not yet defined in types.ts
 // These tests are structural stubs describing the expected API before implementation
-import { parsePlanYaml, dumpPlanYaml } from "../src/plan-executor.js";
-import type { PlanYamlTask, PlanYamlDoc } from "../src/types.js";
+import { parsePlanYaml, dumpPlanYaml, expandComposites } from "../src/plan-executor.js";
+import type { PlanYamlTask, PlanYamlDoc, CompositeDef } from "../src/types.js";
 
 const FIXTURE_PATH = "__tests__/fixtures/sample.plan.yaml";
 
@@ -117,5 +117,89 @@ describe("dumpPlanYaml", () => {
     };
     const output = dumpPlanYaml(doc);
     expect(output).toContain("planName: empty-test");
+  });
+});
+
+// ── Composite expansion (Feature B) ─────────────────────────────────────────
+
+describe("expandComposites", () => {
+  const simpleComposite: CompositeDef = {
+    id: "build-all",
+    phases: [
+      { id: "compile", command: "echo compile" },
+      { id: "test", command: "echo test" },
+    ],
+  };
+
+  test("atomic composite becomes a single task with combined command", () => {
+    const composites: CompositeDef[] = [
+      { ...simpleComposite, atomic: true },
+    ];
+    const tasks: PlanYamlTask[] = [
+      { id: "do-build", command: "placeholder", use: "build-all" },
+    ];
+
+    const result = expandComposites(tasks, composites);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("do-build");
+    expect(result[0].command).toBe("echo compile && echo test");
+    expect(result[0].use).toBe("build-all");
+  });
+
+  test("non-atomic composite expands into sub-phases with prefixed ids", () => {
+    const composites: CompositeDef[] = [
+      { ...simpleComposite, atomic: false },
+    ];
+    const tasks: PlanYamlTask[] = [
+      { id: "build-step", command: "placeholder", use: "build-all" },
+    ];
+
+    const result = expandComposites(tasks, composites);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("build-step:compile");
+    expect(result[0].command).toBe("echo compile");
+    expect(result[1].id).toBe("build-step:test");
+    expect(result[1].command).toBe("echo test");
+  });
+
+  test("task without use passes through unchanged", () => {
+    const tasks: PlanYamlTask[] = [
+      { id: "plain", command: "echo hi" },
+    ];
+
+    const result = expandComposites(tasks, []);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("plain");
+    expect(result[0].command).toBe("echo hi");
+  });
+
+  test("unknown composite id throws", () => {
+    const tasks: PlanYamlTask[] = [
+      { id: "task-a", command: "echo a", use: "nonexistent" },
+    ];
+
+    expect(() => expandComposites(tasks, [])).toThrow("Unknown composite id");
+    expect(() => expandComposites(tasks, [])).toThrow("nonexistent");
+  });
+
+  test("mixed: some tasks use composite, some pass through", () => {
+    const composites: CompositeDef[] = [
+      { ...simpleComposite, atomic: true },
+    ];
+    const tasks: PlanYamlTask[] = [
+      { id: "setup", command: "echo setup" },
+      { id: "build-all", command: "placeholder", use: "build-all" },
+    ];
+
+    const result = expandComposites(tasks, composites);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("setup");
+    expect(result[0].command).toBe("echo setup");
+    expect(result[1].id).toBe("build-all");
+    expect(result[1].command).toBe("echo compile && echo test");
   });
 });

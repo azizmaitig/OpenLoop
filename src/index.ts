@@ -17,3 +17,5 @@ export { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js'
 export { createMakerCheckerPlugin } from './maker-checker-plugin.js';
 export type { MakerCheckerConfig } from './maker-checker-plugin.js';
 export { LoopOrchestrator } from './orchestrator.js';
+export type { OrchestratorConfig } from './orchestrator.js';
+export { remainingRuns } from './budget.js';

@@ -3,9 +3,10 @@
  * and executes tasks as loop phases.
  */
 
-import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, LoopState } from './types.js';
+import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, LoopState, CompositeDef } from './types.js';
 import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
+import { checkPlanAgainstConstitution } from './constitution.js';
 
 let activePlanPath = '';
 let activePlanDoc: PlanYamlDoc | null = null;
@@ -18,29 +19,86 @@ export function createPlugin(): {
   return { name: 'plan-executor', beforeLoop, afterLoop };
 }
 
+/**
+ * Expand composite phases in the task list.
+ * - atomic composites are inlined as a single PhaseDef (combined command).
+ * - non-atomic composites are expanded into sub-phases inline.
+ * - tasks without `use` pass through as-is.
+ */
+export function expandComposites(
+  tasks: PlanYamlTask[],
+  composites: CompositeDef[],
+): PlanYamlTask[] {
+  const compositeMap = new Map(composites.map((c) => [c.id, c]));
+
+  const expanded: PlanYamlTask[] = [];
+  for (const task of tasks) {
+    if (!task.use) {
+      expanded.push(task);
+      continue;
+    }
+
+    const composite = compositeMap.get(task.use);
+    if (!composite) {
+      throw new Error(
+        `Unknown composite id "${task.use}" referenced by task "${task.id}"`,
+      );
+    }
+
+    if (composite.atomic) {
+      // Inline as a single phase with combined command
+      const combinedCommand = composite.phases
+        .map((p) => p.command)
+        .join(' && ');
+      expanded.push({
+        ...task,
+        command: combinedCommand,
+        // Merge timeout: use the max of all sub-phase timeouts, or fallback
+        timeoutMs: composite.phases.reduce(
+          (max, p) => Math.max(max, p.timeoutMs ?? 30000),
+          0,
+        ),
+        // Atomic composites get a marker for downstream inspection
+      });
+    } else {
+      // Expand into sub-phases inline; strip sub-phase dependsOn
+      // since expanded IDs are prefixed and original refs become dangling
+      for (const subPhase of composite.phases) {
+        const { dependsOn: _, ...cleanSub } = subPhase;
+        expanded.push({
+          ...subPhase,
+          id: `${task.id}:${subPhase.id}`,
+        });
+      }
+    }
+  }
+
+  return expanded;
+}
+
 export async function beforeLoop(planPath: string, resume?: boolean): Promise<PhaseDef[]> {
   activePlanPath = planPath;
   const doc = await parsePlanYaml(planPath);
+
+  // Constitution pre-flight gate — borrowed spec-kit concept.
+  const violations = checkPlanAgainstConstitution(doc);
+  if (violations.length > 0) {
+    const lines = violations
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
+  }
+
   activePlanDoc = doc;
-  let phases = doc.tasks.map((task) => ({
-    name: task.id,
-    command: task.command,
-    timeoutMs: task.timeoutMs ?? 30000,
-    expectedExitCode: 0,
-    healCommand: task.healCommand,
-    maxRetries: task.maxRetries,
-    produces: task.produces,
-    producedMustHaveContent: task.producedMustHaveContent,
-    llm: task.llm
-      ? 'provider' in task.llm
-        ? { provider: task.llm.provider ?? 'openai', prompt: task.llm.prompt ?? '' }
-        : {
-            mcpServer: task.llm.mcpServer ?? '',
-            tool: task.llm.tool ?? '',
-            prompt: task.llm.prompt ?? '',
-          }
-      : undefined,
-  }));
+
+  let tasks = doc.tasks;
+
+  // Expand composites if defined
+  if (doc.composites && doc.composites.length > 0) {
+    tasks = expandComposites(tasks, doc.composites);
+  }
+
+  let phases = mapTasksToPhases(tasks);
 
   if (resume) {
     const cp = loadCheckpoint(doc.planName);
@@ -51,6 +109,30 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
   }
 
   return phases;
+}
+
+function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
+  return tasks.map((task) => ({
+    name: task.id,
+    command: task.command,
+    timeoutMs: task.timeoutMs ?? 30000,
+    expectedExitCode: 0,
+    healCommand: task.healCommand,
+    maxRetries: task.maxRetries,
+    produces: task.produces,
+    producedMustHaveContent: task.producedMustHaveContent,
+    dependsOn: task.dependsOn,
+    use: task.use,
+    llm: task.llm
+      ? 'provider' in task.llm
+        ? { provider: task.llm.provider ?? 'openai', prompt: task.llm.prompt ?? '' }
+        : {
+            mcpServer: task.llm.mcpServer ?? '',
+            tool: task.llm.tool ?? '',
+            prompt: task.llm.prompt ?? '',
+          }
+      : undefined,
+  }));
 }
 
 export async function afterLoop(result: LoopResult): Promise<void> {
