@@ -16,6 +16,7 @@
  */
 
 import { evaluatePhase } from './evaluate.js';
+import { validatePhase } from './validator.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -152,6 +153,59 @@ function makeCancelledResult(durationMs: number): PhaseResult {
   };
 }
 
+/**
+ * Conductor-style semantic output validation gate. Runs AFTER evaluatePhase.
+ * Advisory/fail-open: never hard-fails the phase; records result.validation.
+ */
+async function runValidatorGate(
+  phase: PhaseDef,
+  result: PhaseResult,
+  signal?: AbortSignal,
+): Promise<PhaseResult> {
+  if (result.status !== 'pass') return result; // only grade successful runs
+
+  const maxRetries = Math.min(phase.validator?.maxRetries ?? 1, 1); // Conductor caps at 1
+  let retriesUsed = 0;
+
+  const initial = await validatePhase(phase, result);
+  if (initial === undefined) {
+    // LLM error / not configured -> fail-open (advisory)
+    result.validation = { passed: true, reason: 'validator skipped (no LLM or error) — fail-open', confidence: 0, retriesUsed: 0 };
+    return result;
+  }
+  if (initial.passed) {
+    result.validation = { passed: true, reason: initial.reason, confidence: initial.confidence, retriesUsed: 0 };
+    return result;
+  }
+
+  // Validation failed -> re-run primary phase command up to maxRetries (Conductor: re-run once)
+  let lastJudgment = initial;
+  for (; retriesUsed < maxRetries; retriesUsed++) {
+    if (signal?.aborted) break;
+    const rerun = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+    if (rerun.status !== 'pass') {
+      result = rerun; // real command failure -> propagate
+      break;
+    }
+    const reJudgment = await validatePhase(phase, rerun);
+    if (reJudgment?.passed) {
+      result = rerun;
+      result.validation = { passed: true, reason: reJudgment.reason, confidence: reJudgment.confidence, retriesUsed: retriesUsed + 1 };
+      return result;
+    }
+    lastJudgment = reJudgment ?? lastJudgment;
+  }
+
+  // Exhausted retries -> fail-open: keep last output, record validation failure as advisory
+  result.validation = {
+    passed: false,
+    reason: lastJudgment.reason,
+    confidence: lastJudgment.confidence,
+    retriesUsed,
+  };
+  return result; // status stays 'pass' (fail-open)
+}
+
 async function runSinglePhase(
   deps: ExecutionDeps,
   state: LoopState,
@@ -173,7 +227,7 @@ async function runSinglePhase(
   logPhaseContext(phase, deps.config);
 
   const phaseStart = Date.now();
-  const result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+  let result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
 
   // Check for cancellation during command (Bun.spawnSync can't be interrupted mid-flight
   // on Windows, but we check the signal after completion)
@@ -214,6 +268,11 @@ async function runSinglePhase(
     result.judgment = judgment;
   } catch {
     // Non-fatal
+  }
+
+  // ── Validator gate (Conductor-style semantic output validation) ──
+  if (phase.validator) {
+    result = await runValidatorGate(phase, result, signal);
   }
 
   const totalPhaseMs = Date.now() - phaseStart;

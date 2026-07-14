@@ -1,5 +1,22 @@
 export type StateMachineState = 'init' | 'run' | 'verify' | 'done';
 
+export interface ValidatorDef {
+  /** Rubric the phase output is graded against by an LLM. */
+  criteria: string;
+  /** Re-run the phase command on validation failure (Conductor caps at 1). Default 1. */
+  maxRetries?: number;
+  /** Optional LLM override; defaults to env-based config (LLM_PROVIDER/LLM_API_KEY/LLM_MODEL). */
+  llm?: { provider: string; prompt?: string };
+}
+
+export interface ValidationResult {
+  passed: boolean;
+  reason: string;
+  confidence: number;
+  /** Number of re-run attempts before finalizing. */
+  retriesUsed: number;
+}
+
 export interface PhaseDef {
   name: string;
   command: string;
@@ -21,6 +38,8 @@ export interface PhaseDef {
   dependsOn?: string[];
   /** References a composite id for atomic composite expansion. Internal use. */
   use?: string;
+  /** Optional LLM validator gate (Conductor-style). Runs after command succeeds. */
+  validator?: ValidatorDef;
 }
 
 export interface Judgment {
@@ -61,6 +80,8 @@ export interface PhaseResult extends ExecutionResult {
   evidencePath: string;
   judgment?: Judgment;
   pluginResults?: Record<string, any>;
+  /** Advisory validation result from the LLM validator gate. Never hard-fails. */
+  validation?: ValidationResult;
 }
 
 export interface LoopState {
@@ -96,6 +117,8 @@ export interface PlanYamlTask {
   dependsOn?: string[];
   /** References a composite id declared in the top-level composites block. */
   use?: string;
+  /** Optional LLM validator gate (Conductor-style). Runs after command succeeds. */
+  validator?: ValidatorDef;
 }
 
 /** A reusable composite phase sequence defined in a plan YAML. */
