@@ -138,7 +138,7 @@ export function LoopStreamProvider({ children }: { children: React.ReactNode }) 
       }
     }
 
-    if (changed) {
+    if (changed || buffered.length > 0) {
       // Prepend newest events first; cap the ring (design §2.3).
       const merged = [...buffered.slice().reverse(), ...next.events].slice(0, EVENT_CAP);
       next.events = merged;
