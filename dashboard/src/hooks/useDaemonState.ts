@@ -7,7 +7,7 @@ export function useDaemonState() {
   const transport = useStreamTransport();
   return useQuery<DaemonState>({
     queryKey: ['state'],
-    queryFn: fetchDaemonState,
+    queryFn: ({ signal }) => fetchDaemonState(signal),
     refetchInterval: transport === 'poll' ? 3000 : false,
     staleTime: 2000,
   });

@@ -5,6 +5,6 @@ import type { CheckpointState } from '../lib/types';
 export function useCheckpoint(planPath?: string) {
   return useQuery<CheckpointState | null>({
     queryKey: ['checkpoint', planPath ?? ''],
-    queryFn: () => fetchCheckpoint(planPath),
+    queryFn: ({ signal }) => fetchCheckpoint(planPath, signal),
   });
 }

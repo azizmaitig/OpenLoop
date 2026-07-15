@@ -5,7 +5,7 @@ import type { HistoryEntry } from '../lib/types';
 export function useTask(id: string | null) {
   return useQuery<HistoryEntry>({
     queryKey: ['task', id],
-    queryFn: () => fetchTask(id as string),
+    queryFn: ({ signal }) => fetchTask(id as string, signal),
     enabled: !!id,
   });
 }

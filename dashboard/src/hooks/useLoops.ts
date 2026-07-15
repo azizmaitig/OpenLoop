@@ -7,7 +7,7 @@ export function useLoops() {
   const transport = useStreamTransport();
   return useQuery<ChildLoopSummary[]>({
     queryKey: ['loops'],
-    queryFn: fetchLoops,
+    queryFn: ({ signal }) => fetchLoops(signal),
     refetchInterval: transport === 'poll' ? 3000 : false,
     staleTime: 2000,
   });
