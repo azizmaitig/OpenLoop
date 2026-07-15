@@ -17,7 +17,7 @@ export const QueueCard = memo(function QueueCard() {
     <Card title="Queue">
       <div className="value">{data.queueLength}</div>
       <div className="sub">
-        {data.currentTask ? `running: ${data.currentTask.command.slice(0, 32)}` : 'idle'}
+        {data.currentTask ? `running: ${data.currentTask.command?.slice(0, 32) ?? '…'}` : 'idle'}
       </div>
     </Card>
   );
