@@ -21,6 +21,9 @@ test_*.json
 
 # Build artifacts, caches, and project noise
 GARBAGE/
+
+# Dashboard build output (regenerated from dashboard/ via bun run build)
+public/dashboard/
 .omo/evidence/
 .omo/run-continuation/
 .omo/notepads/
@@ -30,7 +33,13 @@ _agent-loop-output/
 cli.exe
 loop-run-log.md
 .opencode/
-/dashboard/
+
+# Runtime/scratch state (generated daemon state, test artifacts)
+STATE.md
+backend-tsc.txt
+.debug-journal.md
+_scripts/
+prototypes/
 
 # loop-factory is a separate project, not part of the agent-loop repo
 loop-factory/

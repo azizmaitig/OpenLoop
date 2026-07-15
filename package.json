@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "prototype:feedback": "bun run src/_prototype-feedback-controller.ts"
+    "prototype:feedback": "bun run prototypes/_prototype-feedback-controller.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

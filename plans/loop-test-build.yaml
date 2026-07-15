@@ -1,0 +1,115 @@
+# loop-test-build.yaml â€” 6B LLM-powered build-from-scratch plan
+#
+# TARGET: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test
+#   (greenfield â€” dir exists but is empty; inside the vault git repo)
+#
+# PRECONDITIONS (owner-owned, NOT assumed by this plan):
+#   1. L2 (source editing) MUST be enabled in AGENTS.md before running â€” the code/test
+#      stages edit source. This is a human runtime toggle; the plan does not flip it.
+#   2. opencode MUST be on PATH (every delegating stage invokes `opencode run ...`).
+#   3. --max-iterations N: N=1 = one-shot build; N>1 = the WHOLE plan re-loops N times
+#      (N full rebuilds). No per-stage retry today. Hard cap 20 (config.ts).
+#
+# AGENT SPECIALIZATION:
+#   `design` and `design-critique` use --agent architect / code-reviewer for role-specific
+#   output. Code phases skip --agent (subagents like react-expert fall back to default).
+#   Review phases use --agent code-reviewer.
+#
+# SAFETY RAILS (baked into every stage):
+#   R1 Infinite-loop/recovery guard: the `code` stage carries healCommand + maxRetries:3.
+#   R2 Context-rot guard: every stage writes output to a FILE in .build/; the next
+#      stage reads that file. No accumulated chat context.
+#   R3 Scope-creep guard: the code task prompt lists NON-GOALS and forbids features
+#      absent from spec.md.
+#   R4 Evidence-not-claim: verify is the non-LLM exit-0 hard gate. LLM verdicts
+#      (design-critique/review/evaluate) are advisory only.
+#   R5 Artifact gate: generative phases set `produces:` so a silent no-op fails the phase.
+
+planName: loop-test-build
+
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+
+  - id: planning
+    command: >-
+      opencode run "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\STATE.md' if present, otherwise infer project intent from the working directory. This is a GREENFIELD throwaway 'loop-test' playground: a Vite + React + TypeScript single-page application. Write a concise product spec to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md' covering: goal (a runnable loop-test SPA demonstrating a minimal interactive + live UI), users (n/a, throwaway), core features (MVP scope only â€” e.g. a counter component that increments on click, plus a small 'tick' indicator that increments on a setInterval to show a live loop, rendered with React + Vite, builds clean, vitest green), out-of-scope (auth, routing, backend, persistence, payments), tech-stack recommendation (Vite 5/6 + React 18/19 + TypeScript, vitest for tests), and acceptance criteria (npm run build succeeds, tests pass, app renders the counter and tick indicator). Keep it under 400 lines. Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 180000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md'
+    producedMustHaveContent: true
+
+  - id: research
+    command: >-
+      opencode run "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md'. Research the recommended tech stack and the top 3-5 risks/unknowns for this MVP (library choices, integration gotchas, perf ceilings). Use the websearch tool and web fetch for CURRENT library docs (React 18 vs 19, Vite 5 vs 6, Bun vs npm, vitest setup) â€” evidence MUST come from fetched docs, NOT from memory. Cite every source URL in research.md. Write findings to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\research.md': for each risk give evidence (with source link), a recommended approach, and a fallback. Do NOT write code. Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 180000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\research.md'
+    producedMustHaveContent: true
+
+  - id: design
+    command: >-
+      opencode run --agent architect "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md' and 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\research.md'. Produce a concrete technical design in 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design.md' for the throwaway Vite + React + TypeScript loop-test SPA (counter component + tick indicator): module/component breakdown (App, Counter component, TickIndicator component, main entry), data model (local component state only), API surface (none â€” no backend), key algorithms (increment handler, setInterval tick), file layout (index.html, src/main.tsx, src/App.tsx, src/Counter.tsx, src/TickIndicator.tsx, vite.config.ts, vitest config), and a build/test strategy (vite build + vitest). Also note any design decisions needing an ADR. Do NOT write application code. Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 180000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design.md'
+    producedMustHaveContent: true
+
+  - id: design-critique
+    command: >-
+      opencode run --agent code-reviewer "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design.md' and 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md'. Critique the design against the spec: missing requirements, over-engineering, security or scalability gaps, and unclear interfaces. Write the verdict to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design-critique.md' with an explicit APPROVE or REVISE decision and a prioritized list of issues (P0-P2). Do NOT modify any source files. Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 120000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design-critique.md'
+    producedMustHaveContent: true
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior architecture reviewer. Stdout holds the design-critique.md content.
+        Return JSON: { "passed": boolean (true=APPROVE, false=REVISE), "reason": "markdown
+        report with P0-P2 issues and whether design meets spec", "confidence": 0.0-1.0 }.
+
+  - id: code
+    command: >-
+      opencode run "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design.md', 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md', and 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design-critique.md' (the critique tells you what to avoid). Implement the MVP (Vite + React + TypeScript loop-test SPA with a Counter that increments on click and a TickIndicator that increments on a setInterval) inside 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test'. If the target dir is inside a git repo, do the work on a git worktree ('git -C <repo-root> worktree add <dir> loop-test-build') or a feature branch; otherwise create the files directly. Scaffold the Vite project, create src/App.tsx + src/Counter.tsx + src/TickIndicator.tsx (increment on click; setInterval tick), src/main.tsx, index.html, vite.config.ts, and a vitest test for the counter. Follow the design faithfully. NON-GOALS: do not add features absent from spec.md, do not add auth/payments/secrets handling unless explicitly in spec, do not refactor unrelated code, do not write the test stage's suite here. Write a unified diff summary to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff'. Exit 0 when implementation + code.diff are written. Assumes the human has enabled L2 (source editing) before this run." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 300000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff'
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run "Re-read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff' and the failing build/test output. Apply the minimal fix to the MVP in 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test' and update 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff'. Do not expand scope beyond the failing concern. Exit 0 when fixed." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    maxRetries: 3
+
+  - id: test
+    command: >-
+      opencode run "Run the project's documented build + test suite for 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test' (e.g. 'npm run build' + 'vitest run' or 'bun test'). Capture results to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\test.log'. For the loop-test Vite/React app this means `vite build` succeeds and the counter vitest test passes. Exit 0 only if build and tests pass; otherwise exit non-zero so the phase fails. Do NOT modify application code â€” only run the suite." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 120000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\test.log'
+    producedMustHaveContent: true
+
+  - id: review
+    command: >-
+      opencode run --agent code-reviewer "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff' and 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\design.md'. Perform a code review: correctness, security, readability, and adherence to the design. Write findings to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\review.md' with P0-P2 issues and a verdict. Do NOT modify source. Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 120000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\review.md'
+    producedMustHaveContent: true
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a senior code reviewer. Stdout holds review.md. Return JSON:
+        { "passed": boolean, "reason": "markdown review with P0-P2 issues and verdict",
+        "confidence": 0.0-1.0 }.
+
+  - id: evaluate
+    command: >-
+      opencode run "Read 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\spec.md' (acceptance criteria), 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\test.log', and 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\review.md'. Judge whether the built loop-test Vite/React MVP satisfies the acceptance criteria (builds clean, counter + tick tests pass, app renders) and is shippable. Write the verdict to 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\evaluate.md' (ADVISORY â€” does not block the run). Exit 0 when the file is written." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 120000
+    produces: 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\evaluate.md'
+    producedMustHaveContent: true
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a quality evaluator. Stdout holds evaluate.md. Return JSON:
+        { "passed": boolean, "reason": "markdown verdict vs acceptance criteria, gaps,
+        ship/no-ship recommendation", "confidence": 0.0-1.0 }.
+
+  - id: verify
+    command: >-
+      opencode run "Final non-LLM gate for 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test': re-run build + the FULL test suite and confirm exit 0. Also confirm 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test\.build\code.diff', test.log, review.md, and evaluate.md all exist. Exit 0 only if build+tests pass; otherwise exit non-zero. This is the hard gate â€” no LLM judgment, command exit code decides pass/fail." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\loop-test"
+    timeoutMs: 120000

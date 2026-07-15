@@ -8,7 +8,6 @@
  * @module shell
  */
 
-import { executeWithTimeout } from './safety.js';
 import { platform } from 'node:os';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';

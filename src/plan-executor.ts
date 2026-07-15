@@ -123,6 +123,7 @@ function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
     producedMustHaveContent: task.producedMustHaveContent,
     dependsOn: task.dependsOn,
     use: task.use,
+    validator: task.validator,
     llm: task.llm
       ? 'provider' in task.llm
         ? { provider: task.llm.provider ?? 'openai', prompt: task.llm.prompt ?? '' }

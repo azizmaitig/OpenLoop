@@ -31,7 +31,7 @@ import type { LoopConfig } from './types.js';
  * Always loops (decideEvent = () => 'LOOP') — the daemon never self-terminates.
  * Installs SIGINT/SIGTERM handlers that applyTransition ABORT on signal.
  */
-export async function runTick(config: LoopConfig): Promise<void> {
+export async function runTick(config: LoopConfig, broadcast?: (type: string, data: unknown) => void): Promise<void> {
   const { sm, state: initialState, plugins } = await createLoopContext(config);
   let state = initialState;
 
@@ -61,9 +61,13 @@ export async function runTick(config: LoopConfig): Promise<void> {
 
   // Shared per-iteration body. Daemon policy: always LOOP (ignores pass/fail,
   // runs until SIGINT); iteration count shown as ∞.
+  let tickInProgress = false;
   const runTickBody = async (): Promise<void> => {
     if (!running) return;
-    iterationCount++;
+    if (tickInProgress) return; // skip overlapping tick; sm is shared across all iterations
+    tickInProgress = true;
+    try {
+      iterationCount++;
     const boundedConfig = { ...config, maxIterations: Infinity };
     const result = await runLoopBody({
       sm,
@@ -74,10 +78,14 @@ export async function runTick(config: LoopConfig): Promise<void> {
       writeState: writeBothStates,
       onPhaseFailed: () => {},
       logPath: resolve('loop-run-log.md'),
+      broadcast,
       decideEvent: () => 'LOOP',
     });
-    state = result.state;
-    console.log(`Daemon iteration ${iterationCount} complete`);
+      state = result.state;
+      console.log(`Daemon iteration ${iterationCount} complete`);
+    } finally {
+      tickInProgress = false;
+    }
   };
 
   // First tick, then interval

@@ -25,16 +25,15 @@ export class MaxIterationsExceededError extends Error {
 }
 
 /**
- * Execute an async function with a hard timeout.
- *
- * Uses AbortController + setTimeout to enforce the deadline.  The underlying
- * function is encouraged to observe the abort signal and clean up promptly.
- *
- * @param fn - Async function to run (receives the AbortSignal for cooperative cancellation)
- * @param timeoutMs - Maximum wall‑clock time in milliseconds
- * @param phaseName - Human‑readable phase label (used in the error message)
- * @throws {PhaseTimeoutError} if the function does not settle within timeoutMs
+ * Check whether the current iteration count is still within the limit.
  */
+export function checkMaxIterations(
+  currentIteration: number,
+  maxIterations: number,
+): boolean {
+  return currentIteration < maxIterations;
+}
+
 export async function executeWithTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
@@ -68,14 +67,4 @@ export async function executeWithTimeout<T>(
   }
 }
 
-/**
- * Check whether the current iteration count is still within the limit.
- *
- * @returns `true` when the loop may continue, `false` when the cap is reached.
- */
-export function checkMaxIterations(
-  currentIteration: number,
-  maxIterations: number,
-): boolean {
-  return currentIteration < maxIterations;
-}
+

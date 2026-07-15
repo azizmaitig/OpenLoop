@@ -1,0 +1,240 @@
+planName: dashboard-self-build
+maxIterations: 50
+tasks:
+  - id: read-loop-state
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\STATE.md', 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\run-log.md', 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\src\daemon-api.ts', 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\src\metrics.ts'. List every piece of loop data exposed (state fields,
+      /api/history shape, /api/metrics keys, trigger-fire events, run-log entry types). Write the inventory to
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\loop-data-inventory.md'. Print ONLY a
+      one-line confirmation. Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" && if
+      not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\loop-data-inventory.md" exit
+      /b 1
+    timeoutMs: 120000
+    status: fail
+    durationMs: 1504
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: planning
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\loop-data-inventory.md'. Write a roadmap to
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\roadmap.md': a numbered list of
+      dashboard features, one per visualizable loop data source, e.g. 1. live STATE.md summary panel, 2. task
+      run-history timeline, 3. metrics cards (pass/fail counts, p50/p95 duration, throughput), 4. trigger-fire log view,
+      5. current FSM phase / phase-queue indicator, 6. budget-usage bar, 7. recent errors from run-log. Keep it to
+      features buildable incrementally. Print ONLY 'roadmap written'. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\roadmap.md" exit /b 1
+    timeoutMs: 180000
+    status: fail
+    durationMs: 1574
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: research
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\roadmap.md' and 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\progress.md' (if it exists). Find the FIRST roadmap item whose line
+      is not marked 'done'. Write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md' with: item: <number>, title: <title>, scope: <files
+      to create/edit in dashboard/src>, status: in-progress. Append a line 'Item <number>: <title> — in-progress' to
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\progress.md' (create it if missing). If
+      ALL items are done, write 'status: complete' to current-item.md. Print ONLY the chosen item. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md" exit /b 1
+    timeoutMs: 120000
+    status: fail
+    durationMs: 1528
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: design
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md', 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\loop-data-inventory.md', and the EXISTING dashboard source under
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\src' (components, hooks, screens).
+      Also read 'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\src\lib\series.ts' and
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\styles\tokens.css' if present. Write
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\design.md' describing: which
+      component(s) to add or edit, how it fetches/wires the loop data (e.g. fetch '/api/metrics' or read STATE.md), the
+      TypeScript types, and how it slots into the existing tab/navigation. Do NOT invent fields that don't exist in the
+      real source types. Print ONLY 'design written'. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\design.md" exit /b 1
+    timeoutMs: 300000
+    status: fail
+    durationMs: 1606
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: design-critique
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\design.md' and 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md'. Critique the design against feasibility and the
+      existing dashboard architecture. Write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\design-critique.md' with APPROVE or REVISE and P0-P2 issues. Print
+      ONLY the verdict. Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard" &&
+      if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\design-critique.md" exit
+      /b 1
+    timeoutMs: 240000
+    status: fail
+    durationMs: 1582
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: create-worktree
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$AL='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop'; $WT='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build'; git -C $AL worktree remove --force $WT 2>&1 | Out-Null; git -C $AL
+      worktree prune 2>&1 | Out-Null; if (Test-Path $WT) { Remove-Item -Recurse -Force $WT 2>&1 | Out-Null }; git -C $AL
+      branch -D dashboard-self-build 2>&1 | Out-Null; git -C $AL worktree add -b dashboard-self-build $WT HEAD 2>&1 |
+      Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'worktree-ok'"
+    timeoutMs: 60000
+    status: pass
+    durationMs: 1575
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: code
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\design.md', 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md', and 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\design-critique.md' (avoid its P0/P1 issues). Implement ONLY the
+      single feature from current-item.md by editing the EXISTING dashboard source in this directory (add a new
+      component/hook/screen and wire it into the existing navigation/tabs). Materialize actual files (new +
+      modifications); do NOT regenerate unrelated files. After writing, write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\code-done.md' listing every file changed. Print ONLY 'code done'.
+      Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard" && if not
+      exist "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\code-done.md" exit /b 1
+    timeoutMs: 600000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read the failing build/test output and
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\current-item.md'. Apply the MINIMAL fix
+      to the dashboard source in this directory. Update 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\code-done.md'. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\code-done.md" exit /b 1
+    maxRetries: 3
+    status: fail
+    durationMs: 1535
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bun install 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) {
+      exit 1 }; Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bun install --force 2>&1 | Out-Null; if ($LASTEXITCODE
+      -ne 0) { exit 1 }; Write-Host 'install-heal-ok'"
+    maxRetries: 3
+    status: pass
+    durationMs: 920
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: test
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bunx vitest run 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0)
+      { exit 1 }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host
+      'test-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Fix the dashboard test/build failure in this directory.
+      Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    maxRetries: 3
+    status: fail
+    durationMs: 4344
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: review
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read the implemented dashboard source under
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\src', plus
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\design.md' and
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\current-item.md'. Code review:
+      correctness, security, readability, design adherence. Write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\review.md' with P0-P2 issues and a verdict. Print ONLY the verdict.
+      Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" && if not exist
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\review.md" exit /b 1
+    timeoutMs: 300000
+    status: fail
+    durationMs: 1585
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: verify-independent
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md' and the implemented dashboard source under
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\src'. Verify the feature from
+      current-item.md is actually implemented and the dashboard stays coherent (components wired, no missing imports).
+      State PASS or FAIL with evidence. If FAIL, verdict REJECT; else APPROVE. The verdict line MUST contain 'VERDICT:
+      APPROVE' or 'VERDICT: REJECT'. Write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\verdict-independent.md'. Print ONLY the verdict. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\verdict-independent.md" exit /b 1
+    timeoutMs: 300000
+    status: fail
+    durationMs: 1630
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: integrate
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$AL='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop'; $WT='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build'; $ART='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build'; $v = Get-Content -Raw (Join-Path $ART 'verdict-independent.md')
+      -ErrorAction SilentlyContinue; $approve = ($v -match 'VERDICT:\s*APPROVE') -or ($v -match '\bAPPROVE\b'); if
+      ($approve) {
+        git -C $WT add -A 2>&1 | Out-Null;
+        git -C $WT commit -m 'auto: dashboard self-build panel' 2>&1 | Out-Null;
+        git -C $AL merge dashboard-self-build --no-edit 2>&1 | Out-Null;
+        if ($LASTEXITCODE -ne 0) { 'status: merge-conflict' | Set-Content (Join-Path $ART 'merge-result.md'); exit 1 };
+        'status: merged' | Set-Content (Join-Path $ART 'merge-result.md');
+      } else {
+        'status: discarded' | Set-Content (Join-Path $ART 'merge-result.md');
+      } git -C $AL worktree remove --force $WT 2>&1 | Out-Null; git -C $AL branch -D dashboard-self-build 2>&1 |
+      Out-Null; Write-Host 'integrate-done'"
+    timeoutMs: 120000
+    status: fail
+    durationMs: 654
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: evaluate
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\current-item.md' and 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\merge-result.md'. If merge-result.md says 'status: merged', open
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\progress.md' and change the matching
+      item line from 'in-progress' to 'done' (match by item number/title from current-item.md). If progress.md is
+      missing, create it. If 'status: discarded', leave progress.md unchanged. Then write 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\evaluate.md' summarizing this iteration's outcome. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" && if not exist "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\evaluate.md" exit /b 1
+    timeoutMs: 120000
+    status: fail
+    durationMs: 1602
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: verify
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard'; bunx vitest run 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) {
+      exit 1 }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host
+      'verify-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free "The final dashboard verify failed. Apply the minimal fix to
+      the dashboard source in this directory. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard"
+    maxRetries: 3
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\dist\index.html
+    status: pass
+    durationMs: 9239
+    completedAt: '2026-07-14T18:00:10.982Z'
+  - id: deploy
+    dependsOn:
+      - verify
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$SRC='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\src\dashboard'; $DIST='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard\dist'; Copy-Item -Path "$DIST\index.html" -Destination
+      "$SRC\index.html" -Force; Remove-Item -Recurse -Force "$SRC\assets" -ErrorAction SilentlyContinue; Copy-Item -Path
+      "$DIST\assets" -Destination "$SRC\assets" -Recurse -Force; Write-Host 'deploy-ok'"
+    timeoutMs: 30000
+    status: fail
+    durationMs: 9443
+    completedAt: '2026-07-14T18:00:10.982Z'

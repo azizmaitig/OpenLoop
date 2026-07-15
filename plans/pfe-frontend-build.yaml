@@ -1,0 +1,209 @@
+﻿planName: pfe-frontend-build
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+  - id: assess
+    dependsOn:
+      - read-state
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are the ASSESS phase of a self-improving PFE frontend build
+      loop. current working directory is the PFE project root. Read: - ALL design docs: docs/build-plan/*.md, docs/rapport/*.md,
+      docs/audit/*.md,
+        AGENTS.md, excalidraw/brief.md, diagrams/STYLE-GUIDE.md
+      - Methodology corpus: methodologie/*.md - Existing frontend source: src/frontend/ (if present â€” may not exist on
+      first run) Produce a GAP ANALYSIS at: .build/pfe-frontend-gap.md Structure with these sections: (1) 'Ã‰tat actuel
+      du frontend' â€” what exists in src/frontend/ (or 'Rien' on first run). (2) 'Exigences du PFE pour l UI' â€” extract
+      web UI requirements from design docs (3) 'Ã‰carts (Gaps)' â€” table: Module / Statut (MANQUANT|INCOMPLET|OK) /
+          PrioritÃ© (P0/P1/P2) / Source document / DÃ©tail
+      (4) 'Contrats mock API' â€” types needed vs existing, C1-C3/C6/C8 cross-ref (5) 'PrioritÃ©s pour ce cycle' â€” what
+      this run should build based on gap severity Each gap must reference a source document + section. Analysis text in
+      French. Exit 0 when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\pfe-frontend-gap.md
+    producedMustHaveContent: true
+  - id: spec
+    dependsOn:
+      - assess
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are the SPEC phase. current working directory is the PFE project root. Read: -
+      Gap analysis at .build/pfe-frontend-gap.md - Existing spec at .build/pfe-frontend-spec.md (if present) - Existing
+      frontend source at src/frontend/ - PFE design docs: docs/build-plan/01-architecture.md (contracts),
+        docs/build-plan/master-plan.md (constraints), docs/build-plan/phases.md
+        (phase roadmap), docs/build-plan/layer-01-pipeline.md (MCP, HITL gate),
+        docs/build-plan/layer-05-knowledge.md (PROV-O citation)
+      Produce an UPDATED product spec at: .build/pfe-frontend-spec.md Rules: - If no existing spec, CREATE from gap
+      analysis + design docs - If spec exists, UPDATE to address the latest gaps â€” do NOT rewrite from scratch -
+      Preserve all 'Completed Items' (verified working modules) - Must include a tracking table: Module / Status
+      (DONE|TODO|IN_PROGRESS) /
+        Dependencies / Last verified
+      Content: purpose (FR-first, presentation-only UI, mock API layer, no backend), stack (React 18+TS+Vite+vitest,
+      tokens.css 6-layer palette), constraint note (Python AI core, <=3 Docker services), all 7 screens
+      (Intakeâ†’Routerâ†’Analysisâ†’ XAIâ†’RAGâ†’Recommend+HITLâ†’Report), mock API contracts per C1-C3/C6/C8 schemas, PROV-O-light
+      citation display, acceptance criteria per screen. Print ONLY the spec. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\pfe-frontend-spec.md
+    producedMustHaveContent: true
+  - id: design
+    dependsOn:
+      - spec
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are the DESIGN phase. current working directory is the PFE project root. Read: -
+      .build/pfe-frontend-spec.md, .build/pfe-frontend-gap.md - Existing design at .build/pfe-frontend-design.md (if
+      present) - Existing source at src/frontend/ - PFE contracts: docs/build-plan/layer-02-orchestration.md (tool
+      interfaces),
+        docs/build-plan/layer-03-analysis.md (model outputs for XAI screens),
+        docs/build-plan/layer-05-knowledge.md (citation structure)
+      Produce an UPDATED technical design at: .build/pfe-frontend-design.md Rules: - If no existing design, CREATE from
+      spec - If exists, UPDATE only the gaps â€” do not rewrite working parts Content: file tree, component breakdown per
+      screen, state management (PipelineContext flow), mock client event design (simulated 7-stage progression), token
+      set (6 layers + dark navy surface), screen routing / state machine. Print ONLY the design. Exit 0 when done."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\pfe-frontend-design.md
+    producedMustHaveContent: true
+  - id: design-critique
+    dependsOn:
+      - design
+    command: >-
+      opencode run  -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read:
+      .build/pfe-frontend-spec.md .build/pfe-frontend-design.md Critique the design against the spec. List P0/P1/P2
+      issues with APPROVE or REVISE. Print ONLY the critique. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe" > "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\.build\design-critique.md"
+    timeoutMs: 240000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\design-critique.md
+    producedMustHaveContent: true
+  - id: code-core
+    dependsOn:
+      - design-critique
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are the CODE-CORE phase. current working directory is the PFE project root. Read:
+      - .build/pfe-frontend-spec.md, .build/pfe-frontend-design.md,
+        .build/pfe-frontend-gap.md, .build/design-critique.md
+      - EXISTING files in src/frontend/ â€” read them first Implement ONLY what the gap analysis + spec say is MISSING or
+      INCOMPLETE: - If src/frontend/package.json doesn't exist: create full project scaffolding
+        (package.json with React18+TS+Vite+vitest deps, vite.config.ts, tsconfig.json,
+        index.html lang=fr-TN, src/frontend/src/main.tsx entry)
+      - If it exists: check deps, add missing; update configs only if needed - If src/frontend/src/api/types.ts missing
+      or incomplete: create/update with
+        IntakeOutput, RouterOutput, ToolOutput, XAIOutput, Citation, Recommendation,
+        Report matching C1-C3/C6/C8 PFE schemas
+      - If src/frontend/src/api/mockClient.ts missing or incomplete: create/update with
+        typed fixtures + simulated 7-stage progression (latency events)
+      - If src/frontend/src/state/PipelineContext.tsx missing: create context store - If
+      src/frontend/src/styles/tokens.css missing: create 6-layer palette - If src/frontend/src/App.tsx,
+      src/frontend/src/main.tsx,
+        src/frontend/src/components/Layout.tsx,
+        src/frontend/src/components/ScreenNav.tsx missing: create them
+      DO NOT overwrite files that already satisfy the spec. DO NOT delete existing code. Files under src/frontend/. Exit
+      0 when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\src\frontend\src\api\mockClient.ts
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "The build output below shows a failure. current working directory is the PFE project
+      root. Read the error, read existing source files, fix minimally. Do NOT rewrite files that don't need changes.
+      Exit 0 when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    maxRetries: 3
+  - id: code-screens
+    dependsOn:
+      - code-core
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are the CODE-SCREENS phase. current working directory is the PFE project root.
+      Read: - .build/pfe-frontend-spec.md, .build/pfe-frontend-design.md,
+        .build/pfe-frontend-gap.md, .build/design-critique.md
+      - EXISTING files in src/frontend/src/ â€” read them first Implement ONLY gaps: screens (IntakeScreen,
+      PipelineScreen, AnalysisScreen, XaiScreen, KnowledgeScreen, RecommendScreen with HITL 'Approuver? [O/n]',
+      ReportScreen with FMEA table + 8D D0-D8 + DMAIC badge) and components (StageView, Gauge, Sparkline, CitationChip,
+      FmeaTable, EightDReport, HitlGate). For existing complete files: do NOT touch. For incomplete files: update
+      minimally. For missing files: create. Wire screen navigation through PipelineContext + mockClient for 7-stage
+      flow. All UI text in French. Files under src/frontend/src/. Exit 0 when done." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\src\frontend\src\screens\ReportScreen.tsx
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Build output below shows a failure. Read error, read existing
+      source, fix minimally. Do NOT rewrite working files. Exit 0 when done." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe"
+    maxRetries: 3
+  - id: install-deps
+    dependsOn:
+      - code-core
+      - code-screens
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\src\frontend'; bun install 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\src\frontend'; bun install --force 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) {
+      exit 1 }; Write-Host 'install-heal-ok'"
+    maxRetries: 3
+  - id: test
+    dependsOn:
+      - install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\src\frontend'; bunx vitest run 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1
+      }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'test-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "The test output below shows a failure. Fix ONLY the frontend
+      source at src/frontend/. Exit 0 when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    maxRetries: 3
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\src\frontend\dist\index.html
+  - id: review
+    dependsOn:
+      - code-screens
+    command: >-
+      opencode run  -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read
+      source under src/frontend/src/. Read .build/pfe-frontend-design.md and .build/pfe-frontend-spec.md. Code review:
+      correctness, security, readability, design adherence (FR-first, mock-only, no backend). Print findings with P0-P2
+      issues and verdict. Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe" >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\review.md"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\review.md
+    producedMustHaveContent: true
+  - id: verify-independent
+    dependsOn:
+      - code-screens
+    command: >-
+      opencode run  -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read
+      .build/pfe-frontend-spec.md â€” its 'Acceptance Criteria' section. Read source under src/frontend/src/. For EACH
+      criterion state PASS or FAIL with evidence. If any FAIL, verdict REJECT; otherwise APPROVE. Verdict must end
+      VERDICT: APPROVE or VERDICT: REJECT. Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+      > "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\verdict-independent.md"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\verdict-independent.md
+    producedMustHaveContent: true
+  - id: evaluate
+    dependsOn:
+      - review
+      - verify-independent
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read .build/pfe-frontend-spec.md (acceptance criteria),
+      .build/verdict-independent.md, .build/review.md, .build/pfe-frontend-gap.md. Summarize whether the PFE frontend
+      satisfies requirements. Note which gaps were closed this run and which remain for the next cycle. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe" > "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\.build\evaluate.md"
+    timeoutMs: 120000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\.build\evaluate.md
+    producedMustHaveContent: true
+  - id: verify
+    dependsOn:
+      - test
+      - verify-independent
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\pfe\src\frontend'; bunx vitest run 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1
+      }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'verify-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Final verify failed. Fix ONLY the frontend source at
+      src/frontend/. Exit 0 when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\pfe"
+    maxRetries: 3
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\pfe\src\frontend\dist\index.html

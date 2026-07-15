@@ -1,6 +1,5 @@
 import { watch, mkdirSync, renameSync, readdirSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import type { Task } from './types.js';
 
 // ── Cron trigger ────────────────────────────────────────────────────────────
 

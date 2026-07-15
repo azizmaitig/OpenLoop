@@ -1,4 +1,5 @@
 import type { ExecutionResult, Task, TaskStatus, TaskQueueState } from './types.js';
+import { makeEvent } from './events.js';
 
 let taskIdCounter = 0;
 
@@ -13,6 +14,11 @@ export class TaskQueue {
   private queue: Task[] = [];
   private currentTask: Task | null = null;
   private completedIds: string[] = [];
+  private _broadcast?: (type: string, data: unknown) => void;
+
+  constructor(broadcast?: (type: string, data: unknown) => void) {
+    this._broadcast = broadcast;
+  }
 
   enqueue(command: string, opts?: { timeoutMs?: number; llm?: Task['llm'] }): Task {
     const task: Task = {
@@ -34,6 +40,11 @@ export class TaskQueue {
     task.lifecycle = 'running';
     task.startedAt = new Date().toISOString();
     this.currentTask = task;
+    this._broadcast?.('task_started', makeEvent('task_started', {
+      taskId: task.id,
+      command: task.command,
+      kind: task.llm ? 'llm' : 'shell',
+    }));
     return task;
   }
 

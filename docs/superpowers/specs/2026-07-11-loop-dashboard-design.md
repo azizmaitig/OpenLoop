@@ -35,8 +35,8 @@ React SPA (Vite + TS)
   Bun daemon (existing) + ADDITIVE endpoints (see §5)
 ```
 
-**Serving**: Vite `build.outDir` → `agent-loop/src/dashboard/` (relative to app
-root `dashboard/`), `base: './'`. Daemon already serves `src/dashboard/index.html`
+**Serving**: Vite `build.outDir` → `agent-loop/public/dashboard/` (relative to app
+root `dashboard/`), `base: './'`. Daemon already serves `public/dashboard/index.html`
 at `GET /dashboard` — no daemon code change required for serving.
 
 ## 4. Data Sources

@@ -1,0 +1,78 @@
+planName: calendar-design-tokens
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 29
+    completedAt: '2026-07-15T09:40:24.114Z'
+  - id: scan-reality
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app\src\App.css. Extract every
+      hardcoded color value (hex #rrggbb, #rgb, rgb()/rgba()) that is NOT a var(--token) reference. For each, list the
+      value, the CSS selector, and the line number. Write the full findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\scan.md. Print ONLY a one-line summary count. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\scan.md
+    status: pass
+    durationMs: 113617
+    completedAt: '2026-07-15T09:40:24.114Z'
+  - id: design-audit
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\scan.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app\src\index.css (the token source of truth).
+      For each hardcoded color in the scan, map it to the correct existing CSS variable from index.css (e.g. #3b82f6 ->
+      var(--color-accent)). Prioritize: P0 = accent/primary/neutral tokens used widely; P1 = semantic colors
+      (success/danger/ warning/info); P2 = one-off neutrals. Output a migration mapping table to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\mapping.md with columns: hardcoded-value
+      | token | selector | priority. Print ONLY the count of mappings. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\mapping.md
+    status: pass
+    durationMs: 45991
+    completedAt: '2026-07-15T09:40:24.114Z'
+  - id: migrate-tokens
+    command: >-
+      opencode run "Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\mapping.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app\src\App.css. Apply the migration: replace
+      each hardcoded color in App.css with its mapped var(--token) from the mapping. Do NOT invent new tokens - only use
+      tokens already defined in index.css. After replacing, remove any [data-theme='dark'] override blocks in App.css
+      that are now fully redundant because the light styles use tokens. Write the changed App.css. Then write a short
+      diff summary to D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\migrate.md. Print ONLY
+      'migrated N values'. Exit 0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\migrate.md
+    healCommand: >-
+      opencode run "Re-read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\migrate.md and the
+      failing build output in D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app. Fix any broken CSS
+      (unbalanced braces, invalid var references) introduced by the migration. Exit 0." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    maxRetries: 3
+    status: pass
+    durationMs: 367942
+    completedAt: '2026-07-15T09:40:24.114Z'
+  - id: design-critique
+    command: >-
+      opencode run --agent code-reviewer "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\mapping.md and D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app\src\App.css. Critique the token migration against the design system in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app\DESIGN.md: are all hardcoded colors now
+      token-based? any missed selectors? any inverted/dark-mode regressions? Print a verdict with APPROVE/REVISE and
+      P0-P2 issues." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app" >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\critique.md"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\critique.md
+    status: pass
+    durationMs: 128049
+    completedAt: '2026-07-15T09:40:24.114Z'
+  - id: verify-build
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app'; npm run build; if ($LASTEXITCODE -ne 0) { exit 1 }; npm run test; if
+      ($LASTEXITCODE -ne 0) { exit 1 }"
+    timeoutMs: 180000
+    status: pass
+    durationMs: 6634
+    completedAt: '2026-07-15T09:40:24.114Z'

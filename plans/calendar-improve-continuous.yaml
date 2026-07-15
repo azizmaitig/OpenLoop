@@ -1,0 +1,32 @@
+planName: calendar-improve-continuous
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 28
+    completedAt: '2026-07-15T02:45:48.190Z'
+  - id: scan-reality
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\scan-reality.ps1 -TargetDir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 30000
+    status: pass
+    durationMs: 372
+    completedAt: '2026-07-15T02:45:48.190Z'
+  - id: improve
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-phase.ps1 -PromptFile
+      .\scripts\prompts\calendar-improve.txt
+    timeoutMs: 900000
+    maxRetries: 2
+    healCommand: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    status: pass
+    durationMs: 16535
+    completedAt: '2026-07-15T02:45:48.190Z'
+  - id: verify-build
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-build.ps1
+    timeoutMs: 120000
+    status: pass
+    durationMs: 3196
+    completedAt: '2026-07-15T02:45:48.190Z'

@@ -26,6 +26,7 @@ import { executePhaseGroup, type ExecutionDeps } from './execute-phases.js';
 import { setCurrentState } from './state.js';
 import type { Plugin } from './plugins.js';
 import type { LoopConfig, LoopState, PlanYamlDoc } from './types.js';
+import { makeEvent } from './events.js';
 
 export interface LoopBodyDeps {
   sm: StateMachine;
@@ -46,6 +47,9 @@ export interface LoopBodyDeps {
   planPath?: string;
   getPlanDoc?: () => PlanYamlDoc | null;
   logPath?: string;
+  broadcast?: (type: string, data: unknown) => void;
+  /** Optional: abort signal for early termination. Checked before and during phase execution. */
+  signal?: AbortSignal;
   executePhaseGroup?: typeof executePhaseGroup;
 }
 
@@ -69,7 +73,14 @@ export async function runLoopBody(deps: LoopBodyDeps): Promise<LoopBodyResult> {
     errors: [],
   };
 
+  // Track FSM transitions with before/after state
+  const planName = config.taskName;
+
+  const tr1_from = state.currentState;
   state = applyTransition('RUN', state, sm);
+  const tr1_to = state.currentState;
+  deps.broadcast?.('fsm_transition', makeEvent('fsm_transition', { planName, iteration, from: tr1_from, to: tr1_to, event: 'RUN' }));
+  deps.broadcast?.('iteration_start', makeEvent('iteration_start', { planName, iteration }));
   await writeState(state);
 
   const runPhases = deps.executePhaseGroup ?? executePhaseGroup;
@@ -82,6 +93,8 @@ export async function runLoopBody(deps: LoopBodyDeps): Promise<LoopBodyResult> {
       planPath: deps.planPath,
       getPlanDoc: deps.getPlanDoc,
       logPath: deps.logPath,
+      broadcast: deps.broadcast,
+      signal: deps.signal,
     },
     state,
     iteration,
@@ -90,11 +103,23 @@ export async function runLoopBody(deps: LoopBodyDeps): Promise<LoopBodyResult> {
   state = phaseResult.state;
   setCurrentState(state);
 
+  const tr2_from = state.currentState;
   state = applyTransition('VERIFY', state, sm);
+  const tr2_to = state.currentState;
+  deps.broadcast?.('fsm_transition', makeEvent('fsm_transition', { planName, iteration, from: tr2_from, to: tr2_to, event: 'VERIFY' }));
   await writeState(state);
 
   const event = await decideEvent(allPassed, state);
+
+  const tr3_from = state.currentState;
   state = applyTransition(event, state, sm);
+  const tr3_to = state.currentState;
+  deps.broadcast?.('fsm_transition', makeEvent('fsm_transition', { planName, iteration, from: tr3_from, to: tr3_to, event }));
+  deps.broadcast?.('iteration_complete', makeEvent('iteration_complete', {
+    planName,
+    iteration,
+    outcome: allPassed ? 'pass' : event === 'ABORT' ? 'error' : 'fail',
+  }));
   await writeState(state);
 
   return { state, allPassed, event };

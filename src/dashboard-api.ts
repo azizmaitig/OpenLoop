@@ -11,7 +11,8 @@
 
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { OUTPUT_DIR } from './constants.js';
+import { basename, join } from 'node:path';
 import type { DaemonAPI } from './daemon-api.js';
 import { computeTaskMetrics, computeBudgetMetrics } from './metrics.js';
 import { loadCheckpoint } from './checkpoint.js';
@@ -142,7 +143,7 @@ function planNameFromPath(planPath: string): string {
 }
 
 export async function loadCheckpointState(planPath?: string): Promise<CheckpointState | null> {
-  const outputDir = resolve('_agent-loop-output');
+  const outputDir = OUTPUT_DIR;
   if (planPath) {
     return loadCheckpoint(planNameFromPath(planPath), outputDir);
   }
@@ -286,6 +287,32 @@ export async function handleDashboardApi(
     // Cold start: re-bucket task history.
     const points = await bucketHistory(api, metric, minutes);
     return Response.json({ metric, points });
+  }
+
+  // GET /api/checkpoints — list available checkpoints
+  if (url.pathname === '/api/checkpoints') {
+    const outputDir = OUTPUT_DIR;
+    if (!existsSync(outputDir)) return Response.json({ checkpoints: [] });
+    let entries: string[] = [];
+    try {
+      entries = (await readdir(outputDir)).filter((f) => f.startsWith('checkpoint-') && f.endsWith('.json'));
+    } catch {
+      return Response.json({ checkpoints: [] });
+    }
+    const checkpoints: { planName: string; updatedAt: string; startedAt: string; taskCount: number }[] = [];
+    for (const f of entries) {
+      try {
+        const raw = await readFile(join(outputDir, f), 'utf-8');
+        const state = JSON.parse(raw) as CheckpointState;
+        checkpoints.push({
+          planName: state.planName,
+          updatedAt: state.updatedAt,
+          startedAt: state.startedAt,
+          taskCount: state.completedTaskIds.length,
+        });
+      } catch { /* skip unparseable */ }
+    }
+    return Response.json({ checkpoints });
   }
 
   // GET /api/checkpoint

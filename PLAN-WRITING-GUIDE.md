@@ -74,6 +74,9 @@ That is the entire contract. `planName` + a list of tasks, each with a unique `i
 | `tasks[].maxRetries` | no | — | Retry count before escalation. |
 | `tasks[].produces` | no | — | **Artifact gate.** Path to a file this task MUST produce. After the command exits 0, the executor checks this file exists and fails the phase if missing. Catches silent failures where the LLM exits 0 without producing the expected artifact. |
 | `tasks[].producedMustHaveContent` | no | `false` | When `true`, the `produces` file must also be non-empty (zero-length file fails the gate). |
+| `tasks[].validator.criteria` | no* | — | **Output quality gate.** After the command exits 0, an LLM grades the phase output against this rubric. If it fails, re-runs once (`maxRetries` cap 1) then **fail-opens** — phase always passes, validation recorded in `STATE.md`. *Required if `validator` block present. |
+| `tasks[].validator.maxRetries` | no | `1` | Re-run attempts on validation failure. Capped at 1 (Conductor semantics). |
+| `tasks[].validator.llm` | no | (env) | Optional LLM override for the validator. Same shape as `tasks[].llm`. Defaults to `LLM_PROVIDER`/`LLM_API_KEY`/`LLM_MODEL` env vars. |
 
 Do **not** author `status`, `durationMs`, `completedAt`, `confidence`, or `dependsOn` by
 hand (except `dependsOn` — see §4A) — the executor owns the rest.
@@ -166,11 +169,35 @@ When a task has `llm:`, the prompt **must instruct the model to return**:
   verdict in the report.
 - Keep the prompt scoped: one judgment per task. Don't ask the LLM to also fix things.
 
+### 5.1 Validator gate
+
+The `validator:` block on a task adds a second LLM call after the command exits 0. It grades the phase output against a `criteria` rubric, re-runs once on fail (capped at 1), and always fail-opens — the phase always passes, but the validation result is recorded in STATE.md.
+
+```yaml
+tasks:
+  - id: code-gen
+    command: type prompt.txt
+    llm:
+      provider: opencode
+      prompt: Generate a FastAPI auth endpoint
+    validator:
+      criteria: |
+        The generated code must:
+        1. Include a SQLAlchemy model with email + password_hash
+        2. Include Pydantic schemas for request/response
+        3. Use async route handlers with type annotations
+      maxRetries: 1
+```
+
+**When to use it:** Code / report / analysis generation where the output must follow a specific format. Any `llm:` task where the agent exits 0 but produces poor-quality output. The validator re-runs the same command once on failure; the second output is final regardless (fail-open).
+
+**What it does NOT replace:** `evaluatePhase` (the built-in exit-code + LLM judgment) still runs independently. `healCommand` still handles command failures (non-zero exit). The validator only fires on successful runs that produce bad content.
+
 ---
 
 ## 5. Guardrails every plan MUST respect
 
-These come from `AGENTS.md` and `loop-constraints.md`. A plan that violates them is a
+These come from `AGENTS.md`. A plan that violates them is a
 "wrong plan" even if it executes.
 
 - **Read `STATE.md` first.** The first task should be a `read-state` step (`type STATE.md`
@@ -187,9 +214,11 @@ These come from `AGENTS.md` and `loop-constraints.md`. A plan that violates them
   without explicit human approval.
 - **Paths: match the established convention.** The loop runs from the `agent-loop` project
   root, so `.\scripts\foo.ps1` (relative) is the proven, working form used by every
-  `design-calendar-*.yaml` plan. Use it. Only switch to absolute paths if you know the
-  loop will run from a different cwd. Plan-internal references (prompt files, reports) are
-  also relative to the loop root.
+  `design-calendar-*.yaml` plan. **For in-loop plans (audit/maintenance/triage)**, use
+  relative paths. **For cross-project build plans**, use absolute paths for `--dir` and
+  `produces:`. Plan-internal references (prompt files, reports) are relative to the loop
+  root for in-loop plans, or relative to `--dir` for cross-project plans. Never use `..\`
+  parent-relative — it is fragile and may resolve incorrectly.
 
 - **read-state command: `type STATE.md` is fine (relative, no quotes needed).** The loop
   now writes commands verbatim to a temp `.cmd` file before execution (see §1), so quoted
@@ -204,6 +233,22 @@ These come from `AGENTS.md` and `loop-constraints.md`. A plan that violates them
   resolve the shim via `PATHEXT`. Without this, implement phases fail with
   "Le fichier spécifié est introuvable" even though the script itself runs fine.
   (This is a PowerShell/.NET gotcha, not an agent-loop bug.)
+
+### 5.1 Worktree path alignment (if a code phase creates a worktree)
+
+When a code phase runs `git -C <vault> worktree add <dir> <branch>`, the worktree lands at
+`<target>-build` (a **sibling** of `<target>`), not inside `<target>`. The plan's `command`
+keeps `--dir <target>`, so every downstream phase (`test`, `review`, `evaluate`, `verify`)
+looks in `<target>`, finds **nothing**, and fails — even though the code was generated
+correctly one directory over.
+
+**Rule:** if a code phase creates a git worktree, the worktree path becomes the effective
+`--dir` for **all** subsequent phases that read generated code. Update every downstream
+`--dir` to the worktree (e.g. `<target>-build`), or the run proceeds down a broken
+dependency chain (see failure mode #7). For 6B plans where the sub-agent itself runs the
+worktree command inside `opencode run`, pass the resolved worktree path back out (via a
+`produces:` file the loop reads, or hardcode the known `<target>-build` name) so later
+phases point at it.
 
 ---
 
@@ -253,7 +298,48 @@ output flows through `.build/` files so each phase starts from fresh context (no
 
 The canonical template lives at `.omo/plans/build-app-pipeline.yaml`. Pattern:
 
+### 6B.0 Resolve agents & skills from your vault — do NOT hardcode
+
+The #1 failure mode in 6B plans is baking in a specific `--agent` name (e.g.
+`code-reviewer`) that doesn't match your current vault, or that can't do what the
+phase asks (see §7 #14). **Agents and skills are discovered at plan-authoring
+time from your vault, not recalled from memory.** Before writing a 6B plan:
+
+1. **Enumerate what's actually available.** Run `opencode agent list` to see the
+   agent personas in your vault (and which are marked `(subagent)`). Run
+   `opencode run --help` to confirm the flags your build supports — do not assume
+   an agent name from a previous session still exists or still behaves the same.
+2. **Check write permission per agent.** Some personas (e.g. `code-reviewer`) are
+   **read-only**: they have no file-write tool, so they can *print* a verdict to
+   stdout but cannot *create* the artifact file. A `produces:` gate on a phase that
+   assigns such an agent will correctly FAIL (the file never appears). Cross-check
+   each agent's tool capabilities against the `produces:` you intend to set.
+3. **Assign, don't hardcode.** Record the resolved assignment next to each phase as
+   a YAML comment so the loop and future editors know it was vault-resolved:
+
+     # design:          agent=architect     (verify it can write) → produces .build/design.md
+     # design-critique: agent=code-reviewer (read-only) → stdout redirected to artifact
+     # review:          agent=code-reviewer (read-only) → stdout redirected to artifact
+
+4. **Skills have no `opencode run` flag.** `opencode run` accepts `--agent` but
+   there is **no `--skill` flag**. To give a phase specialized knowledge, either
+   (a) pick an agent persona whose bundled skills cover the phase, or (b) name the
+   skill(s) explicitly in the prompt and instruct the sub-agent to load them via
+   its own skill tool. Verify the skill exists in your vault before referencing it
+   (e.g. list available skills from your agent/skill registry).
+
+**Rule of thumb:** generative/write phases → default agent (has write); pure
+review/critique phases → read-only specialist whose stdout is **redirected** to the
+artifact via `> .build/<file>.md`. Never assign a read-only agent to a
+`produces:`-gated write without the redirect.
+
 ```yaml
+# Cross-project 6B build plan.
+# <LOOP_ROOT> = absolute path to the agent-loop project (replace this placeholder).
+# Artifacts live in <LOOP_ROOT>/.build/ so BOTH the loop (the produces: gate) and every
+# sub-agent (running in --dir <target>) read/write the SAME absolute files. Do NOT use
+# relative .build/ — a sub-agent in --dir <target> would write to <target>/.build and the
+# loop would never find it (this is why older templates silently no-op'd).
 planName: my-app-build
 tasks:
   - id: read-state
@@ -262,68 +348,101 @@ tasks:
 
   - id: planning
     command: >-
-      opencode run -m <provider/model> "Read .build/STATE.md if present. Write a
-      product spec to .build/spec.md. Exit 0 when done." --dir "D:\target\dir"
+      opencode run -m <provider/model>
+      "Read <LOOP_ROOT>/.build/STATE.md if present. Write a product spec to
+      <LOOP_ROOT>/.build/spec.md. Print ONLY the spec text. Exit 0 when done."
+      --dir "D:\target\dir"
     timeoutMs: 180000
+    produces: "<LOOP_ROOT>/.build/spec.md"
 
   - id: research
     command: >-
-      opencode run -m <provider/model> "Read .build/spec.md. Research the tech stack,
-      risks, and unknowns. Write findings to .build/research.md. Exit 0." --dir "D:\target\dir"
+      opencode run -m <provider/model>
+      "Read <LOOP_ROOT>/.build/spec.md. Research the tech stack, risks, and unknowns.
+      Write findings to <LOOP_ROOT>/.build/research.md. Print ONLY the findings. Exit 0."
+      --dir "D:\target\dir"
     timeoutMs: 180000
+    produces: "<LOOP_ROOT>/.build/research.md"
 
+  # design: agent=architect (verify it has file-write in your vault; if read-only,
+  # drop --agent so the default agent writes the artifact).
   - id: design
     command: >-
-      opencode run --agent architect -m <provider/model> "Read .build/spec.md and
-      .build/research.md. Write a technical design to .build/design.md. Exit 0."
+      opencode run --agent architect -m <provider/model>
+      "Read <LOOP_ROOT>/.build/spec.md and <LOOP_ROOT>/.build/research.md.
+      Write a technical design to <LOOP_ROOT>/.build/design.md. Print ONLY the design. Exit 0."
       --dir "D:\target\dir"
     timeoutMs: 180000
+    produces: "<LOOP_ROOT>/.build/design.md"
 
+  # design-critique: code-reviewer is READ-ONLY (no file-write tool). The shell redirect
+  # `> <LOOP_ROOT>/.build/design-critique.md` captures its stdout into the artifact so the
+  # produces: gate is satisfied without the agent ever needing write permission.
   - id: design-critique
     command: >-
-      opencode run --agent code-reviewer -m <provider/model> "Read .build/design.md
-      and .build/spec.md. Critique against the spec. Write verdict to
-      .build/design-critique.md with APPROVE/REVISE and P0-P2 issues. Exit 0."
+      opencode run --agent code-reviewer -m <provider/model>
+      "Read <LOOP_ROOT>/.build/design.md and <LOOP_ROOT>/.build/spec.md. Critique against
+      the spec. Print a verdict with APPROVE/REVISE and P0-P2 issues."
       --dir "D:\target\dir"
+      > "<LOOP_ROOT>/.build/design-critique.md"
     timeoutMs: 120000
+    produces: "<LOOP_ROOT>/.build/design-critique.md"
 
+  # Read the critique so code avoids the flagged issues (closes the feedback loop).
   - id: code
     command: >-
-      opencode run -m <provider/model> "Read .build/design.md and .build/spec.md.
-      Implement the app in the working directory. Write a diff to .build/code.diff.
-      Exit 0." --dir "D:\target\dir"
+      opencode run -m <provider/model>
+      "Read <LOOP_ROOT>/.build/design.md, <LOOP_ROOT>/.build/spec.md, and
+      <LOOP_ROOT>/.build/design-critique.md. Implement the app in the working directory
+      (--dir target). Write the diff to <LOOP_ROOT>/.build/code.diff. Exit 0."
+      --dir "D:\target\dir"
     timeoutMs: 300000
+    produces: "<LOOP_ROOT>/.build/code.diff"
     healCommand: >-
-      opencode run -m <provider/model> "Re-read .build/code.diff and fix failures.
+      opencode run -m <provider/model>
+      "Re-read <LOOP_ROOT>/.build/code.diff and the failing build output; fix the failures.
       Exit 0." --dir "D:\target\dir"
     maxRetries: 3
 
+  # review: code-reviewer is READ-ONLY — redirect its stdout to the artifact.
   - id: review
     command: >-
-      opencode run --agent code-reviewer -m <provider/model> "Read .build/code.diff
-      and .build/design.md. Code review: correctness, security, readability, design
-      adherence. Write findings to .build/review.md. Exit 0." --dir "D:\target\dir"
+      opencode run --agent code-reviewer -m <provider/model>
+      "Read <LOOP_ROOT>/.build/code.diff and <LOOP_ROOT>/.build/design.md. Code review:
+      correctness, security, readability, design adherence. Print findings."
+      --dir "D:\target\dir"
+      > "<LOOP_ROOT>/.build/review.md"
     timeoutMs: 120000
+    produces: "<LOOP_ROOT>/.build/review.md"
 
+  # verify: prefer a REAL shell build+test that exits non-zero on failure (see §5).
+  # Wrapping the build in `opencode run` hides failures behind a 0 exit code (self-grading).
   - id: verify
     command: >-
-      opencode run -m <provider/model> "Run the project's build + tests and confirm
-      exit 0. Exit 0 only if they pass." --dir "D:\target\dir"
+      powershell.exe -NoProfile -ExecutionPolicy Bypass
+      -Command "Set-Location 'D:\target\dir'; bun run build; if ($LASTEXITCODE -ne 0) { exit 1 }; bun test"
     timeoutMs: 120000
 ```
 
 **Agent specialization (`--agent` flag):**
-Use `--agent <name>` to route a phase to a specialized agent persona. Confirmed working:
+Use `--agent <name>` to route a phase to a specialized persona. **Resolve `<name>` from
+`opencode agent list` at authoring time — do not copy a name from an old plan** (see §6B.0).
 
-| Phase | `--agent` | Why |
-|---|---|---|
-| design | `architect` | System design, architecture decisions |
-| design-critique | `code-reviewer` | Design audit against spec |
-| review | `code-reviewer` | Code review (correctness, security) |
-| code / fix | _(none — skip)_ | Subagents like `react-expert` fall back to default |
+| Phase | `--agent` | Write? | Why / caveat |
+|---|---|---|---|
+| design | `architect` | verify | System design. Confirm `architect` has file-write in your vault; if read-only, drop `--agent` so the default agent writes the artifact. |
+| design-critique | `code-reviewer` | read-only | Design audit against spec. **Read-only: redirect its stdout to the artifact** (`> .build/...md`) so `produces:` is satisfied. |
+| review | `code-reviewer` | read-only | Code review (correctness, security). Same redirect pattern. |
+| code / fix | _(none)_ | yes (default) | Subagents like `react-expert` fall back to default; the default agent has file-write, so it can produce diffs/artifacts. |
 
-Agents labeled `(subagent)` in `opencode agent list` can still be used with `--agent` — only
-`react-expert` is known to reject and fall back. Test new agents with a quick run.
+**Read-only personas cannot satisfy a `produces:` gate on their own** — they print to stdout
+but never create files. For critique/review phases this is fine *because* the shell redirect
+captures stdout into the artifact. For any phase that must *create* a file, use the default
+agent (has write) or a persona you have verified has write permission.
+
+Agents labeled `(subagent)` in `opencode agent list` can still be used with `--agent`. Only
+`react-expert` is known to reject and fall back. Test new agents with a quick run, and check
+each persona's tool list for a file-write capability before assigning an artifact-producing phase.
 
 **Key differences from 6A:**
 - Phases use `opencode run` instead of `powershell.exe` — the LLM does the generative work
@@ -336,10 +455,29 @@ Agents labeled `(subagent)` in `opencode agent list` can still be used with `--a
 
 | # | Failure | Symptom | Prevention |
 |---|---|---|---|
-| 1 | **Silent no-op** | Code phase exits 0 but produces no files. Tests pass on old code. | Add `produces:` with the expected diff/artifact path. The executor fails the phase if the file is missing. |
+| 1 | **Silent no-op** | Code phase exits 0 but produces no files. Tests pass on old code. | Add `produces:` with the expected diff/artifact path (absolute, see §6B.0). The executor fails the phase if the file is missing. |
 | 2 | **Disconnected critique** | Design-critique finds problems; code phase never reads the critique and ships the same bugs. | Every code prompt must include: "Also read {critique-file} — it tells you what to avoid." |
 | 3 | **Phantom fields** | Architect invents field names that don't exist in the real source types (`totalTasks`, `triggers[]`, `stderr`). | Before the design phase, inject real source files as input: "Read src/types.ts before writing any field names. Do not invent fields that don't exist in these types." |
-| 4 | **Self-grading** | The agent that builds decides "done." No independent gate catches an empty or wrong result. | Use `produces:` as a deterministic check. Never rely on a sub-agent's own "I'm done" signal as the only gate. |
+| 4 | **Self-grading** | The agent that builds decides "done." No independent gate catches an empty or wrong result. | Use `produces:` as a deterministic check + a separate verify phase that runs the real build/test (not `opencode run` wrapping the build). |
+| 5 | **Agent write restriction** | A read-only persona (e.g. `code-reviewer`) is told to "write X.md"; it only prints to stdout, so the file never appears and `produces:` FAILs — but the phase is already wasted. | For read-only personas, **redirect stdout to the artifact** (`> .build/x.md`) so the shell — not the agent — creates the file. Or use the default agent for write phases. See §6B.0 / §7 #14. |
+| 6 | **Subprocess death not detected** | The inner `opencode run` child exited, but the bun parent (running the executor) blocked forever with no timeout firing; the wait never resolved. | Set `timeoutMs` strictly above the inner LLM's max execution time, and ensure the executor has its own subprocess timeout. A hung child must not be able to wedge the loop (see §6B.1). |
+| 7 | **Worktree path ≠ `--dir` path** | The code phase creates a git worktree at `<target>-build` (sibling), but downstream phases still `--dir <target>` and find nothing. | If a code phase creates a worktree, the worktree path becomes the effective `--dir` for ALL downstream phases. Update every subsequent `--dir` to the worktree (see §5.1). |
+| 8 | **Intermediate `produces`-fail doesn't halt** | design-critique FAILs but the loop proceeds to `code` blind, depending on a file that doesn't exist. | Decide halt-vs-continue policy explicitly (see §5 + checklist #18). A failed artifact gate should stop the run or re-run the upstream phase, not silently continue down a broken dependency chain. |
+
+**6B.1 Execution internals: subprocess wait & timeouts (why #6 matters)**
+Each phase's `command` runs in a child process (a temp `.cmd` on Windows). The executor
+`await`s that process; it does **not** poll. Consequences:
+
+- **A detached/exited child the executor can't observe will wedge the phase forever.**
+  If the inner `opencode run` spawns a grandchild and exits while the grandchild keeps the
+  pipe open, the parent wait never resolves and no timeout fires. Mitigate by (a) keeping
+  `timeoutMs` above the inner LLM's worst-case runtime, and (b) ensuring the executor's
+  subprocess wrapper applies its own kill timeout.
+- **`timeoutMs` is the phase budget, not the child's.** The inner `opencode run` has its own
+  model latency; your plan's `timeoutMs` must be ≥ that. A 120s phase wrapping a 180s inner
+  run will be killed mid-generation.
+- **Prefer `opencode run` to finish and exit on its own.** Don't pipe it into long-running
+  tail/stream commands that keep the pipe open after the work is done.
 
 **Which to use:**
 | Goal | Pattern |
@@ -367,6 +505,7 @@ Agents labeled `(subagent)` in `opencode agent list` can still be used with `--a
 | 11 | Duplicate `id`s | Breaks resume/checkpoint | Unique ids only |
 | 12 | `run-phase.ps1` uses `UseShellExecute = $false` to launch opencode | npm `.cmd` shim is invisible to `Process.Start` | Set `UseShellExecute = $true` in the script |
 | 13 | `type ".\STATE.md"` (quoted relative) | Stale — the temp `.cmd` file fix preserves quotes. `.\` prefix is unnecessary, not broken. | Use `type STATE.md` (no prefix) for clearest read-state |
+| 14 | `--agent <read-only>` on a `produces:`-gated write phase | The persona (e.g. `code-reviewer`) has no file-write tool; told to "write X.md" but only prints to stdout → file never appears → `produces:` FAILs (or the phase runs blind). | Verify each agent's write permission before assigning artifact output (§6B.0). For read-only personas, redirect stdout to the artifact (`> .build/x.md`); for write phases use the default agent. |
 
 ---
 
@@ -388,6 +527,10 @@ Before saving a plan, confirm:
 - [ ] Design phase prompts include "read the real source types and do not invent fields"
 - [ ] No source edits unless L2 is enabled
 - [ ] Did not hand-author `status`/`durationMs`/`completedAt`
+- [ ] **#17** Every `--agent` used in a generative/write phase has file-write permission — cross-check each agent's tool capabilities against its `produces:` (§6B.0 / §7 #14)
+- [ ] **#18** `produces:`-failure behavior is decided — does the loop **halt** the run, or continue down a broken dependency chain? (failure mode #8)
+- [ ] **#19** Worktree path == downstream `--dir` — if a code phase creates a git worktree, every subsequent phase `--dir`s into the worktree, not the original target (§5.1 / failure mode #7)
+- [ ] **#20** Subprocess timeout < plan timeout — the inner `opencode run` has its own latency; the phase `timeoutMs` must be ≥ the inner LLM's max execution time, and the executor must have its own subprocess kill timeout (§6B.1 / failure mode #6)
 
 ---
 

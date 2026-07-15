@@ -1,0 +1,215 @@
+planName: agent-loop-self-schema
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 28
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: scan-engine
+    command: >-
+      opencode run "Read these files in src/ at the project root: loop.ts, cli.ts, src/state-machine.ts, src/state.ts,
+      src/loop-runner.ts, src/safety.ts, src/config.ts, src/plan-executor.ts, src/execute-phases.ts, src/checkpoint.ts,
+      src/transition.ts, src/loop-core.ts, src/types.ts, src/index.ts. Extract the COMPLETE engine surface: 1. Every CLI
+      command and flag (e.g. start, daemon, init, --task, --plan, --max-iterations,
+         --phases, --timeout, --port, --loops-config, --cron, --watch-dir, --memory, --llm, --plugins).
+      2. Every config key in DEFAULT_CONFIG (from config.ts) with its type, default, and the
+         matching CLI flag.
+      3. The full PlanTask / Plan / composites field set from types.ts + plan-executor.ts
+         (id, command, timeoutMs, llm{provider,prompt,mcpServer,tool}, healCommand, maxRetries,
+         produces, producedMustHaveContent, validator{criteria,maxRetries,llm}, dependsOn, use).
+      4. The 4-state machine states and transitions. Write structured findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-engine.md with one section per item above and a `source:
+      <file>` line under every fact. Print ONLY a one-line summary count of fields extracted. Exit 0. IMPORTANT: do NOT
+      create, edit, or delete any file outside of the .build/ directory." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-engine.md
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 67098
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: scan-daemon
+    command: >-
+      opencode run "Read these files in src/ at the project root: src/daemon.ts, src/daemon-api.ts, src/routes.ts,
+      src/dashboard-api.ts, src/task-processor.ts, src/task-queue.ts, src/triggers.ts, src/history.ts, src/run-log.ts,
+      src/metrics.ts. Extract the COMPLETE daemon + trigger surface: 1. Every HTTP REST endpoint (method + path +
+      purpose) from routes.ts / daemon-api.ts / dashboard-api.ts. 2. The WebSocket channel(s) and update cadence. 3.
+      CronTrigger expression grammar (*/step, ranges N-M, lists N,M) and FileWatchTrigger behavior
+         (debounce, pattern, auto-move).
+      4. TaskQueue semantics (FIFO) and metrics exposed (pass/fail, p50/p95, throughput, trigger fires). Write
+      structured findings to D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-daemon.md
+      with one section per item and a `source: <file>` line under every fact. Print ONLY a one-line summary count of
+      endpoints/triggers. Exit 0. IMPORTANT: do NOT create, edit, or delete any file outside of the .build/ directory."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-daemon.md
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 43147
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: scan-llm-mcp
+    command: >-
+      opencode run "Read these files in src/ at the project root: src/mcp.ts, src/llm.ts, src/json-rpc.ts,
+      src/evaluate.ts, src/eval-core.ts, src/agentmemory.ts, src/memory-hooks.ts. Extract the COMPLETE LLM/MCP/memory
+      surface: 1. Supported LLM controller backends (openai, anthropic, opencode, custom/Ollama) and how --llm
+      <server,tool> wires in. 2. MCP transport (JSON-RPC 2.0 over stdio) and the executeMcpPhase contract. 3. The
+      advisory LLM validator gate: validator.criteria format, fail-open behavior, retry cap. 4. agentmemory integration:
+      episodic save, health pulse, lesson extraction hooks. Write structured findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-llm.md with a `source: <file>` line under every fact. Print
+      ONLY a one-line summary. Exit 0. IMPORTANT: do NOT create, edit, or delete any file outside of the .build/
+      directory." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-llm.md
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 77868
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: scan-plugins-orch
+    command: >-
+      opencode run "Read these files in src/ at the project root: src/plugins.ts, src/orchestrator.ts, src/worktree.ts,
+      src/collision.ts, src/budget.ts, src/recovery.ts, src/maker-checker-plugin.ts. Extract the COMPLETE
+      plugins/orchestration/recovery surface: 1. The 5 plugin lifecycle hooks (beforeLoop, afterLoop, onPhaseStart,
+      onPhaseEnd, onError) and how modules are loaded. 2. LoopOrchestrator child-loop lifecycle + collision detection
+      rules. 3. worktree.ts isolation contract and recovery.ts (v9) feedback controller behavior. 4. budget.ts daily
+      run/token caps and the report-only switch threshold. 5. maker-checker-plugin dual-phase execution + confidence
+      scoring. Write structured findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-plugins.md with a `source: <file>` line under every fact.
+      Print ONLY a one-line summary. Exit 0. IMPORTANT: do NOT create, edit, or delete any file outside of the .build/
+      directory." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-plugins.md
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 64406
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: scan-modules-doc
+    command: >-
+      opencode run "Read these files at the project root: README.md, AGENTS.md, PLAN-WRITING-GUIDE.md, package.json, and
+      every file under docs/adr/. Extract the COMPLETE documented surface that the schema must expose: 1. The module map
+      (41 modules) grouped by subsystem, with file -> responsibility. 2. The published Feature list (every bullet in
+      README 'Features'). 3. The configuration table (Key / Default / Description / CLI flag) from README. 4. The
+      plan-task field reference table from PLAN-WRITING-GUIDE.md (Field / Required / Default / Notes). 5. The two plan
+      archetypes (6A audit, 6B build) summary. Write structured findings to D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-doc.md with a `source: <file>` line under every fact. Print
+      ONLY a one-line summary count. Exit 0. IMPORTANT: do NOT create, edit, or delete any file outside of the .build/
+      directory." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-doc.md
+    dependsOn:
+      - read-state
+    status: pass
+    durationMs: 107091
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: design-schema
+    command: >-
+      opencode run "You are the schema author. Read ALL of these: D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-engine.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-daemon.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-llm.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-plugins.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-doc.md, and README.md. Produce THREE files (write all three):
+      (1) D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\agent-loop.schema.json
+          A JSON Schema (draft 2020-12, set \"$schema\": \"https://json-schema.org/draft/2020-12/schema\")
+          describing the loop's FULL capability surface as one object with these top-level properties:
+            - loopConfig: object of every config key (from facet-engine + facet-doc config table), each
+              with type + default documented in description.
+            - plan: an object schema with REQUIRED `planName` (string) and `tasks` (array, minItems 1).
+              Each task object requires `id` (string, unique) and `command` (string); all other plan-task
+              fields (timeoutMs, llm, healCommand, maxRetries, produces, producedMustHaveContent,
+              validator, dependsOn, use) are optional with correct types. Include `composites` (optional array).
+            - daemonEndpoints: array of {method, path, purpose}.
+            - triggerTypes: array of {type: 'cron'|'file-watch', grammar/behavior}.
+            - pluginHooks: array of the 5 hook names.
+            - llmProviders: array of supported backends.
+            - moduleMap: array of {subsystem, file, responsibility}.
+          Make every property's `description` cite its `source:` file from the facets.
+          CRITICAL: the schema MUST validate plans/calendar-design-tokens.yaml as-is (set additionalProperties
+          true or define all optional fields so a real plan does NOT error). Do NOT invent fields not present
+          in the facets.
+      (2) D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\schema.ts
+          TypeScript interfaces mirroring the JSON schema: LoopConfig, PlanTask, Plan, Composites,
+          DaemonEndpoint, TriggerType, PluginHook, LlmProvider, ModuleMap. ALSO export a runtime
+          validator function validatePlan(plan: unknown): string[] that returns an array of error
+          strings (empty array = valid). It must check: planName is a non-empty string; tasks is a non-empty
+          array; each task has string id and string command; ids are unique. NO external imports except
+          typescript built-ins (no zod/js-yaml). Valid TS only.
+      (3) D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\verify-schema.ts
+          A Bun script that:
+            - imports validatePlan from './schema.ts' (Bun resolves .ts),
+            - reads and JSON.parse's the agent-loop.schema.json (assert it has $schema and properties),
+            - reads and yaml-parses (js-yaml from agent-loop node_modules) plans/calendar-design-tokens.yaml,
+            - runs validatePlan(plan) and asserts the result is an empty array,
+            - on ANY failure: console.error(...) then process.exit(1); on success: console.log('schema OK').
+          Valid, runnable TypeScript only.
+      Write the three files, then print ONLY 'schema generated'. Exit 0. IMPORTANT: do NOT create, edit, or delete any
+      file outside of the .build/ directory." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\agent-loop.schema.json
+    producedMustHaveContent: true
+    dependsOn:
+      - scan-engine
+      - scan-daemon
+      - scan-llm-mcp
+      - scan-plugins-orch
+      - scan-modules-doc
+    healCommand: >-
+      opencode run "Re-read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\facet-*.md and the
+      failing output of D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\verify-schema.ts (run
+      `bun D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\verify-schema.ts` to see errors).
+      Fix the schema JSON / schema.ts / verify-schema.ts so the JSON parses, the TS is valid, and
+      plans/calendar-design-tokens.yaml validates with zero errors. Rewrite the broken file(s). Exit 0. IMPORTANT: do
+      NOT create, edit, or delete any file outside of the .build/ directory." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop"
+    maxRetries: 3
+    status: pass
+    durationMs: 198424
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: design-critique
+    command: >-
+      opencode run "Read D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\agent-loop.schema.json, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\schema.ts, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-engine.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-daemon.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-llm.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-plugins.md, D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\.build\facet-doc.md, and README.md. Verify the schema captures 100% of the
+      loop's documented capabilities. For each of these, confirm coverage and call out MISSING items with source
+      evidence: every CLI flag, every config key, every plan-task field, every daemon REST endpoint, every trigger type,
+      every plugin hook, every LLM/MCP provider, and the full module map. Print a verdict APPROVE or REVISE plus a P0-P2
+      gap list (empty if complete)." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop" >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\critique.md"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\.build\critique.md
+    dependsOn:
+      - design-schema
+    status: pass
+    durationMs: 65695
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: assert-readonly
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop'; $d = git status --porcelain src; if ($d) { Write-Error 'ALERT: src/ was
+      modified during the run:'; Write-Error $d; exit 1 }; Write-Output 'src/ clean — no source files were touched.';
+      exit 0"
+    timeoutMs: 30000
+    dependsOn:
+      - design-critique
+    status: fail
+    durationMs: 2011
+    completedAt: '2026-07-15T17:24:43.997Z'
+  - id: verify-schema
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop'; bun .build/verify-schema.ts; if ($LASTEXITCODE -ne 0) { exit 1 }"
+    timeoutMs: 120000
+    dependsOn:
+      - assert-readonly
+    status: fail
+    durationMs: 373425
+    completedAt: '2026-07-15T17:24:43.997Z'

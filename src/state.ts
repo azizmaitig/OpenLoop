@@ -1,4 +1,4 @@
-import type { LoopState, LoopConfig, PhaseResult, DaemonStatus } from './types.js';
+import type { LoopState, LoopConfig, PhaseResult } from './types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { parseFrontmatter, dumpFrontmatter } from './yaml.js';
 
@@ -136,9 +136,9 @@ export async function readPauseState(path: string): Promise<boolean> {
 // ── JSON state persistence (folded from state-writer.ts) ─────────────────────
 
 import { resolve } from 'node:path';
+import { OUTPUT_DIR } from './constants.js';
 
-// ponytail: hardcoded path, make configurable when multi-project support needed
-const OUTPUT_DIR = resolve('_agent-loop-output');
+
 
 // ── Current state ref (replaces object-wrapper pattern) ────────────────────
 

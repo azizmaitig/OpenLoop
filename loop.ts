@@ -108,11 +108,32 @@ async function main(): Promise<void> {
   // ── Daemon mode (v6) ────────────────────────────────────────────────────
   if (parsed.subcommand === 'daemon') {
     const port = parsed.port ?? 3000;
+    // Resolve plan config for in-process execution (live WS events)
+    let planConfig: LoopConfig | undefined;
+    if (parsed.planPath && !parsed.cron) {
+      planConfig = resolvePhases(parsed.taskName, parsed.phaseNames);
+      planConfig = {
+        ...planConfig,
+        planPath: parsed.planPath,
+        plugins: [...(planConfig.plugins ?? []), './src/plan-executor.ts'],
+        daemon: planConfig.daemon ?? { intervalMs: 60000, port },
+      };
+      // Pre-load plan phases so runTick picks them up directly
+      const { loadPlugins } = await import('./src/plugins.js');
+      const plugins = await loadPlugins(planConfig);
+      const planPlugin = plugins.find(p => p.name === 'plan-executor');
+      if (planPlugin?.beforeLoop) {
+        const planPhases = await planPlugin.beforeLoop(parsed.planPath, false);
+        planConfig = { ...planConfig, phases: planPhases };
+        console.log(`[plan-executor] Loaded ${planPhases.length} phases from ${parsed.planPath}`);
+      }
+    }
     const daemon = new Daemon(port, undefined, {
       cron: parsed.cron,
       watchDir: parsed.watchDir,
       loopsConfig: parsed.loopsConfig,
       planPath: parsed.planPath,
+      planConfig,
     });
     await daemon.start();
     return;

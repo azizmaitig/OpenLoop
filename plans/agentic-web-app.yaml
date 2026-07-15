@@ -1,0 +1,214 @@
+# agentic-web-app — SaaS-grade single-author blog (MVP vertical slice)
+# Generated from docs/agentic-driven-loop.md (§6B archetype) with all §4 corrections
+# AND §2 agent+skill assignment on every generative (LLM) task.
+# Model string is the guide's documented form; swap if your opencode lacks it.
+# L2 plan: edits source. Human-enabled; agent-loop isolates code tasks in a worktree.
+# Agents are registered subagents in .opencode/agents/ (verified present). Skills are
+#   loaded by naming them in each prompt (opencode run has no --skill flag).
+# All artifact paths are ABSOLUTE so the produces gate is independent of the agent's cwd.
+# Shell tasks (install/test/verify) use pure cmd.exe syntax (the executor shells out
+#   via cmd) — NO pipe, NO powershell wrapper (the §4.3 stderr issue does not apply under cmd).
+# PREREQUISITE (human): set DATABASE_URL in web-app/.env (Postgres) before running —
+#   verify/test build gates need a live DB to be truthful.
+
+planName: agentic-web-app
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+
+  - id: planning
+    command: >-
+      opencode run --agent planner -m opencode/deepseek-v4-flash-free
+      "Load and follow the `planning-and-task-breakdown` skill, then the `spec-driven-development`
+      skill. Read D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\STATE.md if
+      present. Write a product spec to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md.
+      The product is a SINGLE-AUTHOR, production-grade personal blog deployed to VERCEL, backed by
+      POSTGRES, with AUTHOR-ONLY login (no reader accounts). MVP scope (one concern): posts CRUD +
+      author auth + a deployable production build, plus these features: i18n (multi-language),
+      full-text search, image/media upload. Acceptance criteria: (1) post CRUD works end-to-end via
+      UI + API; (2) author can register/log in/log out; (3) production build succeeds; (4) data
+      persists across process restart (Postgres, not in-memory); (5) i18n language switch works; (6)
+      search returns correct results; (7) image/media upload + serve works; (8) deployable to
+      Vercel. Exit 0 when done."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 180000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md
+    producedMustHaveContent: true
+
+  - id: research
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free
+      "Load and follow the `search-first` skill, then the `source-driven-development` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md.
+      Choose the concrete stack for a single-author production blog on VERCEL + POSTGRES with
+      author-only auth, i18n, search, and image upload. Recommend: framework (e.g. Next.js App
+      Router), ORM + migration tool, auth library, search approach (e.g. Postgres full-text / a
+      search lib), image storage (Vercel Blob / local / S3-compatible), and an i18n library. Justify
+      choices against Vercel constraints and production readiness. Write findings + the chosen stack
+      to D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\research.md.
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\research.md
+    producedMustHaveContent: true
+
+  - id: design
+    command: >-
+      opencode run --agent architect -m opencode/deepseek-v4-flash-free
+      "Load and follow the `api-and-interface-design` skill, then the `spec-driven-development`
+      skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\research.md
+      (chosen stack). Write technical design to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md
+      covering: data model (users, posts, media, i18n messages), API/routes, auth/session flow,
+      search indexing strategy, image upload + serve flow, i18n structure (routing + message
+      catalogs), DB migration plan, secrets handling (env vars, never hardcoded), and Vercel deploy
+      config. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md
+    producedMustHaveContent: true
+
+  - id: design-critique
+    command: >-
+      opencode run --agent code-reviewer -m opencode/deepseek-v4-flash-free
+      "Load and follow the `code-review-and-quality` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md.
+      Critique against the spec and PRODUCTION READINESS: security (auth, secrets, SQL injection,
+      upload validation), Vercel runtime constraints, Postgres migration safety, i18n completeness,
+      search correctness, upload abuse (size/type/paths). Write verdict to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design-critique.md
+      with APPROVE/REVISE and P0-P2 issues. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 240000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design-critique.md
+    producedMustHaveContent: true
+
+  - id: code-backend
+    command: >-
+      opencode run --agent code-architect -m opencode/deepseek-v4-flash-free
+      "Load and follow the `api-and-interface-design` skill, the `security-and-hardening` skill,
+      and the `test-driven-development` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\research.md
+      (chosen stack), and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design-critique.md
+      (it lists what to avoid — do NOT repeat its P0/P1 issues). Implement the backend: ORM models +
+      migrations (users, posts, media, i18n), auth/session, API/routes for posts CRUD + auth, search
+      indexing, image upload endpoint, i18n message loading. Write the ACTUAL source files into
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app, then generate a
+      unified diff of all changes and write it to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-backend.diff.
+      Secrets come from env vars only. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-backend.diff
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run --agent code-architect -m opencode/deepseek-v4-flash-free
+      "Re-read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-backend.diff
+      and the failing build/test output. Apply the minimal fix (write actual files into
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app) and update the diff
+      at D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-backend.diff.
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    maxRetries: 3
+
+  - id: code-frontend
+    command: >-
+      opencode run --agent react-expert -m opencode/deepseek-v4-flash-free
+      "Load and follow the `frontend-ui-engineering` skill and the `impeccable` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\research.md
+      (chosen stack), the implemented backend in
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app, and
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design-critique.md
+      (avoid its P0/P1 issues). Implement the frontend: post list/detail, create/edit forms
+      (Markdown/MDX), auth login UI, search UI, image upload UI, i18n language switcher, responsive +
+      accessible layout. Write the ACTUAL source files into
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app, then generate a
+      unified diff and write it to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-frontend.diff.
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-frontend.diff
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run --agent react-expert -m opencode/deepseek-v4-flash-free
+      "Re-read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-frontend.diff
+      and the failing build/output. Apply the minimal fix (write actual files into
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app) and update the diff
+      at D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-frontend.diff.
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    maxRetries: 3
+
+  - id: install-deps
+    command: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm install && echo install-ok
+    timeoutMs: 120000
+    healCommand: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm install --force && echo install-heal-ok
+    maxRetries: 3
+
+  - id: test
+    command: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm run build >nul 2>&1 && if errorlevel 1 exit /b 1 && echo test-ok
+    timeoutMs: 300000
+    healCommand: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && if exist .next rmdir /s /q .next && if exist node_modules rmdir /s /q node_modules && if exist dist rmdir /s /q dist && npm install && npm run build >nul 2>&1 && if errorlevel 1 exit /b 1 && echo test-heal-ok
+    maxRetries: 3
+
+  - id: review
+    command: >-
+      opencode run --agent code-reviewer -m opencode/deepseek-v4-flash-free
+      "Load and follow the `code-review-and-quality` skill, then the `security-review` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-backend.diff,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\code-frontend.diff,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md. Code
+      review: correctness, security (auth, secrets, injection, upload validation), readability,
+      contract adherence, design adherence, production readiness (Vercel/Postgres/env/secrets). Write
+      findings to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\review.md with
+      P0-P2 issues and a verdict. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\review.md
+    producedMustHaveContent: true
+
+  - id: evaluate
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free
+      "Load and follow the `verification-before-completion` skill. Read
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md
+      (acceptance criteria),
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\test.log if
+      present,
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\review.md.
+      Judge whether the built app satisfies the acceptance criteria (post CRUD end-to-end, author
+      login, build succeeds, persists across restart, i18n + search + upload work, deployable to
+      Vercel) and is usable. Write the verdict to
+      D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\evaluate.md.
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\evaluate.md
+    producedMustHaveContent: true
+
+  - id: verify
+    command: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm run build >nul 2>&1 && if errorlevel 1 exit /b 1 && echo verify-ok
+    timeoutMs: 300000
+    healCommand: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && if exist .next rmdir /s /q .next && if exist node_modules rmdir /s /q node_modules && if exist dist rmdir /s /q dist && npm install && npm run build >nul 2>&1 && if errorlevel 1 exit /b 1 && echo verify-heal-ok
+    maxRetries: 3

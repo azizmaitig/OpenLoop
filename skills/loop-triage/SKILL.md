@@ -41,9 +41,9 @@ bun run loop.ts daemon --loops-config plans/daily-triage-cron.yaml
 ## Inputs
 
 - `STATE.md` — the current loop state file (the only input; no external sources)
-- `loop-budget.md` — daily run caps and kill-switch flags (read before each run)
+- `AGENTS.md` (Budget section) — daily run caps and kill-switch flags (read before each run)
 - `loop-run-log.md` — recent run history (used to check budget consumption)
-- `loop-constraints.md` — binding constraints enforced before triage
+- `AGENTS.md` (Safety/guardrails section) — binding constraints enforced before triage
 
 ## Output
 
@@ -59,7 +59,7 @@ The plan executor writes `status`, `durationMs`, and `completedAt` back to `plan
 
 ## Budget guard integration
 
-Before each triage run, the loop checks `loop-budget.md` and `LOOP_DAILY_RUN_CAP`:
+Before each triage run, the loop checks `AGENTS.md` (Budget section) and `LOOP_DAILY_RUN_CAP`:
 
 - **Runs < 80% of cap** — full triage (L1 report-only by default)
 - **Runs >= 80% but < 100%** — report-only mode (no sub-agents, no auto-fix)
@@ -78,13 +78,13 @@ The budget status is written to `loop-run-log.md` via `src/run-log.ts`:
 - When in doubt, put it in Watch or Noise rather than creating work.
 - Never propose architectural overhauls during triage — this skill is for signal, not invention.
 - Do NOT read external sources (no GitHub, no CI, no issues) — STATE.md only.
-- Respect `loop-constraints.md` — constraints are binding and override triage priorities.
+- Respect `AGENTS.md` (Safety/guardrails section) — constraints are binding and override triage priorities.
 - Do not edit source code during triage (L1 mode). L2+ requires human approval per AGENTS.md.
 
 ## Workflow
 
 ```
-[Start] → Read loop-constraints.md → Check budget guard → 
+[Start] → Read AGENTS.md (Safety/guardrails → Budget) → Check budget guard → 
   Read STATE.md → LLM triage evaluation → Log run →
   Update STATE.md footer → [End]
 ```
@@ -97,8 +97,8 @@ The budget status is written to `loop-run-log.md` via `src/run-log.ts`:
 | `plans/daily-triage-cron.yaml` | Orchestrator loops config (cron: 0 9 * * *) |
 | `STATE.md` | Current loop state (read + updated by triage) |
 | `loop-run-log.md` | Run history (appended by triage) |
-| `loop-budget.md` | Daily caps and kill-switch |
-| `loop-constraints.md` | Binding constraints |
+| `AGENTS.md` (Budget section) | Daily caps and kill-switch |
+| `AGENTS.md` (Safety/guardrails section) | Binding constraints |
 | `_agent-loop-output/state.json` | Full phase results including LLM judgment |
 | `src/budget.ts` | Budget guard implementation |
 | `src/run-log.ts` | Run log append/read implementation |

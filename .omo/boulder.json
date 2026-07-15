@@ -6,8 +6,16 @@
       "work_id": "agent-loop-file-watch",
       "active_plan": ".omo/plans/agent-loop-file-watch.md",
       "plan_name": "agent-loop-file-watch",
-      "session_ids": ["codex:current"],
-      "status": "active",
+      "session_ids": ["opencode:ses_0ade57e5affe9QHdCgPB2pZPvv"],
+      "status": "paused",
+      "worktree_path": null
+    },
+    "git-health-fix": {
+      "work_id": "git-health-fix",
+      "active_plan": ".omo/plans/git-health-fix.md",
+      "plan_name": "git-health-fix",
+      "session_ids": ["opencode:ses_0ade57e5affe9QHdCgPB2pZPvv"],
+      "status": "completed",
       "worktree_path": null
     }
   }

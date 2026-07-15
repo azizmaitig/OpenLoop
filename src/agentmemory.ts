@@ -9,6 +9,7 @@
 
 import { mkdir } from 'node:fs/promises';
 import type { LoopState } from './types.js';
+import { OUTPUT_DIR } from './constants.js';
 
 const AGENTMEMORY_URL = 'http://localhost:3111';
 const TIMEOUT_MS = 2000;
@@ -104,7 +105,7 @@ export async function archiveSession(
 ): Promise<null> {
   const paths: string[] = [
     sessionArchivePath(taskName, basePath),
-    sessionArchivePath(taskName, '_agent-loop-output/session-archive'),
+    sessionArchivePath(taskName, `${OUTPUT_DIR}/session-archive`),
   ];
 
   const phaseLines = Object.entries(state.phaseResults)

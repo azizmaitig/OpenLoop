@@ -16,6 +16,7 @@
  */
 
 import { evaluatePhase } from './evaluate.js';
+import { validatePhase } from './validator.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -26,6 +27,7 @@ import { runCommand } from './shell.js';
 import { appendRunLog } from './run-log.js';
 import type { RunLogEntry } from './run-log.js';
 import { topoSortLayers } from './phase-graph.js';
+import { makeEvent } from './events.js';
 
 /** Everything executePhaseGroup needs from the caller's context. */
 export interface ExecutionDeps {
@@ -39,6 +41,10 @@ export interface ExecutionDeps {
   getPlanDoc?: () => PlanYamlDoc | null;
   /** Optional: path to run-log.md for structured log entries */
   logPath?: string;
+  /** Optional: broadcast function for real-time lifecycle events */
+  broadcast?: (type: string, data: unknown) => void;
+  /** Optional: abort signal to cancel in-flight phase execution */
+  signal?: AbortSignal;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -78,9 +84,12 @@ export async function executePhaseGroup(
   let allPassed = true;
 
   for (const layer of layers) {
+    if (deps.signal?.aborted) {
+      return { allPassed: false, state: currentState };
+    }
     if (layer.length === 1) {
       // Singleton layer: run sequentially — same code path for clarity
-      const result = await runSinglePhase(deps, currentState, iteration, layer[0], undefined);
+      const result = await runSinglePhase(deps, currentState, iteration, layer[0], deps.signal);
       currentState = result.state;
       if (!result.passed) {
         allPassed = false;
@@ -91,9 +100,13 @@ export async function executePhaseGroup(
 
     // Multi-phase layer: run concurrently with abort-on-failure
     const ac = new AbortController();
+    // Combine external abort signal with internal sibling-cancellation signal
+    const combinedSignal = deps.signal
+      ? AbortSignal.any([deps.signal, ac.signal])
+      : ac.signal;
     const phaseResults = await Promise.allSettled(
       layer.map((phase) =>
-        runSinglePhase(deps, currentState, iteration, phase, ac.signal),
+        runSinglePhase(deps, currentState, iteration, phase, combinedSignal),
       ),
     );
 
@@ -152,6 +165,59 @@ function makeCancelledResult(durationMs: number): PhaseResult {
   };
 }
 
+/**
+ * Conductor-style semantic output validation gate. Runs AFTER evaluatePhase.
+ * Advisory/fail-open: never hard-fails the phase; records result.validation.
+ */
+async function runValidatorGate(
+  phase: PhaseDef,
+  result: PhaseResult,
+  signal?: AbortSignal,
+): Promise<PhaseResult> {
+  if (result.status !== 'pass') return result; // only grade successful runs
+
+  const maxRetries = Math.min(phase.validator?.maxRetries ?? 1, 1); // Conductor caps at 1
+  let retriesUsed = 0;
+
+  const initial = await validatePhase(phase, result);
+  if (initial === undefined) {
+    // LLM error / not configured -> fail-open (advisory)
+    result.validation = { passed: true, reason: 'validator skipped (no LLM or error) — fail-open', confidence: 0, retriesUsed: 0 };
+    return result;
+  }
+  if (initial.passed) {
+    result.validation = { passed: true, reason: initial.reason, confidence: initial.confidence, retriesUsed: 0 };
+    return result;
+  }
+
+  // Validation failed -> re-run primary phase command up to maxRetries (Conductor: re-run once)
+  let lastJudgment = initial;
+  for (; retriesUsed < maxRetries; retriesUsed++) {
+    if (signal?.aborted) break;
+    const rerun = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+    if (rerun.status !== 'pass') {
+      result = rerun; // real command failure -> propagate
+      break;
+    }
+    const reJudgment = await validatePhase(phase, rerun);
+    if (reJudgment?.passed) {
+      result = rerun;
+      result.validation = { passed: true, reason: reJudgment.reason, confidence: reJudgment.confidence, retriesUsed: retriesUsed + 1 };
+      return result;
+    }
+    lastJudgment = reJudgment ?? lastJudgment;
+  }
+
+  // Exhausted retries -> fail-open: keep last output, record validation failure as advisory
+  result.validation = {
+    passed: false,
+    reason: lastJudgment.reason,
+    confidence: lastJudgment.confidence,
+    retriesUsed,
+  };
+  return result; // status stays 'pass' (fail-open)
+}
+
 async function runSinglePhase(
   deps: ExecutionDeps,
   state: LoopState,
@@ -173,7 +239,18 @@ async function runSinglePhase(
   logPhaseContext(phase, deps.config);
 
   const phaseStart = Date.now();
-  const result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+
+  // Emit phase_start before the command executes
+  const planName = deps.config.taskName;
+  deps.broadcast?.('phase_start', makeEvent('phase_start', {
+    planName,
+    iteration,
+    phaseName: phase.name,
+    command: phase.command,
+    dependsOn: phase.dependsOn,
+  }));
+
+  let result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
 
   // Check for cancellation during command (Bun.spawnSync can't be interrupted mid-flight
   // on Windows, but we check the signal after completion)
@@ -216,6 +293,11 @@ async function runSinglePhase(
     // Non-fatal
   }
 
+  // ── Validator gate (Conductor-style semantic output validation) ──
+  if (phase.validator) {
+    result = await runValidatorGate(phase, result, signal);
+  }
+
   const totalPhaseMs = Date.now() - phaseStart;
   let newState = updatePhaseResult(state, phase.name, result);
 
@@ -230,6 +312,17 @@ async function runSinglePhase(
     console.log(`ERROR (${totalPhaseMs}ms)`);
     if (result.stderr) console.error(`  error: ${result.stderr}`);
   }
+
+  // Emit phase_complete after the result status is known
+  deps.broadcast?.('phase_complete', makeEvent('phase_complete', {
+    planName,
+    iteration,
+    phaseName: phase.name,
+    status: result.status,
+    durationMs: totalPhaseMs,
+    exitCode: result.exitCode,
+    error: result.status !== 'pass' ? result.stderr || undefined : undefined,
+  }));
 
   if (result.status !== 'pass') {
     // ADR-0011 heal seam: phases with healCommand get up to maxRetries heal
@@ -325,7 +418,10 @@ async function executePhasesSequential(
   let allPassed = true;
 
   for (const phase of phases) {
-    const sr = await runSinglePhase(deps, state, iteration, phase, undefined);
+    if (deps.signal?.aborted) {
+      return { allPassed: false, state };
+    }
+    const sr = await runSinglePhase(deps, state, iteration, phase, deps.signal);
     state = sr.state;
     if (!sr.passed) allPassed = false;
   }

@@ -1,0 +1,227 @@
+# agentic-blog-self-building-v2
+# 12h self-building loop for the blog at loop-factory/web-app.
+# Each iteration: research picks next roadmap item → code → test → verify.
+#
+# Launch: bun run loop.ts daemon --plan plans/agentic-blog-self-building-v2.yaml --cron "*/15 * * * *"
+# Stop: Ctrl-C
+#
+# KEY FIXES FROM PRIOR ATTEMPTS:
+# 1. No --agent flags (planner/architect/code-reviewer not found in shell context)
+# 2. --yes flag prevents LLM from waiting for input
+# 3. Prompts give LITERAL content to dump into files (no generative ambiguity)
+# 4. CMD-level file-existence guards: && if not exist "path" exit /b 1
+# 5. Model: opencode/deepseek-v4-flash-free (the only confirmed available)
+
+planName: agentic-blog-self-building-v2
+maxIterations: 50
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+
+  # ── Planning ─────────────────────────────────────────────────────────────
+  - id: planning
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Write TWO files in .build/ NOW. Do not ask questions. Do not summarize.
+      FILE 1: .build/roadmap.md — write this verbatim:
+      1. RSS/Atom feed (/feed.xml route using existing 'feed' package)
+      2. Full-text search (pagination, tag filter, snippets)
+      3. Drafts & scheduling (DRAFT/PUBLISHED/SCHEDULED, admin toggle)
+      4. Accessibility (ARIA, skip-link, keyboard nav, focus-visible)
+      5. Performance (next/image, memoization, reduce re-renders)
+      6. SEO: OG images, sitemap.xml, robots.txt, JSON-LD
+      7. i18n completeness (en/zh/ja, locale routing polish)
+      8. Comments moderation + spam protection
+      9. Newsletter double opt-in + unsubscribe
+      10. Error/loading states (error.tsx, loading.tsx, Suspense)
+      11. Vitest setup + smoke tests
+      12. Documentation (README, ADRs)
+      FILE 2: .build/spec.md — write this verbatim:
+      acceptanceCriteria:
+        - \"'npm run build' (prisma generate + next build) exits 0\"
+        - \"'npm run lint' exits 0\"
+        - \"'npx tsc --noEmit' exits 0\"
+      Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\spec.md" exit /b 1
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\roadmap.md" exit /b 1
+    timeoutMs: 180000
+
+  # ── Research ─────────────────────────────────────────────────────────────
+  - id: research
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/roadmap.md and .build/progress.md (if exists).
+      Find the first roadmap item NOT marked 'done'.
+      Write .build/current-item.md with:
+      item: (number)
+      title: (title)
+      scope: (files)
+      status: in-progress
+      Then append 'Item (number): (title) — in-progress' to .build/progress.md.
+      If ALL done, write 'status: complete' to current-item.md.
+      Write .build/current-item.md NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\current-item.md" exit /b 1
+    timeoutMs: 120000
+
+  # ── Design ───────────────────────────────────────────────────────────────
+  - id: design
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/spec.md, .build/current-item.md, src/lib/types.ts.
+      Write .build/design.md with: file list, data model, implementation plan.
+      Write .build/design.md NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design.md" exit /b 1
+    timeoutMs: 300000
+
+  # ── Design critique ─────────────────────────────────────────────────────
+  - id: design-critique
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/design.md and .build/spec.md and .build/current-item.md.
+      Write .build/design-critique.md with APPROVE/REVISE and P0-P2 issues.
+      Write .build/design-critique.md NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\design-critique.md" exit /b 1
+    timeoutMs: 240000
+
+  # ── Worktree ────────────────────────────────────────────────────────────
+  - id: create-worktree
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+      "Set-Location 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app';
+      if (Test-Path '.\.worktree-build') { git worktree remove --force .worktree-build 2>&1 | Out-Null };
+      git worktree add .worktree-build (git branch --show-current) 2>&1 | Out-Null;
+      if ($LASTEXITCODE -ne 0) { exit 1 };
+      Write-Host 'worktree-ok'"
+    timeoutMs: 60000
+
+  # ── Code ────────────────────────────────────────────────────────────────
+  - id: code
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/design.md, .build/spec.md, .build/current-item.md,
+      and .build/design-critique.md (if exists).
+      Implement the current item by writing files DIRECTLY into this directory.
+      Materialize actual files (new + modifications). Do NOT write a diff.
+      After writing all files, write .build/code-done.md listing every file changed.
+      Write files NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build\.build\code-done.md" exit /b 1
+    timeoutMs: 600000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read the failing output below and .build/current-item.md.
+      Apply the MINIMAL fix. Write corrected files. Update .build/code-done.md. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build\.build\code-done.md" exit /b 1
+    maxRetries: 3
+
+  # ── Install deps ────────────────────────────────────────────────────────
+  - id: install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+      "Set-Location 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build';
+      npm install 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+      "Set-Location 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build';
+      if (Test-Path 'node_modules') { Remove-Item -Recurse -Force 'node_modules' 2>&1 | Out-Null };
+      npm install --force 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host 'install-heal-ok'"
+    maxRetries: 3
+
+  # ── Build + lint + typecheck ───────────────────────────────────────────
+  - id: test
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+      "Set-Location 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build';
+      npx prisma generate 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      next build 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      npx next lint 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      npx tsc --noEmit 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      Write-Host 'test-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Build/lint/typecheck failed (output below). Apply MINIMAL fix.
+      Write corrected files. Update .build/code-done.md. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.worktree-build\.build\code-done.md" exit /b 1
+    maxRetries: 3
+
+  # ── Review ──────────────────────────────────────────────────────────────
+  - id: review
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .worktree-build/src/, .build/design.md, .build/spec.md, .build/current-item.md.
+      Code review: correctness, security, readability, contract adherence.
+      Write .build/review.md with P0-P2 issues and verdict. Write NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\review.md" exit /b 1
+    timeoutMs: 300000
+
+  # ── Independent verifier ────────────────────────────────────────────────
+  - id: verify-independent
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/spec.md (acceptanceCriteria), .build/current-item.md,
+      .worktree-build/src/ (implemented source).
+      For EACH acceptance criterion: PASS or FAIL with evidence.
+      If ANY FAIL: REJECT. Else: APPROVE.
+      Write .build/verdict-independent.md. Write NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\verdict-independent.md" exit /b 1
+    timeoutMs: 300000
+
+  # ── Integrate ───────────────────────────────────────────────────────────
+  - id: integrate
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/verdict-independent.md.
+      If APPROVE:
+        git -C .worktree-build add -A
+        git -C .worktree-build commit -m 'auto: item from .build/current-item.md'
+        git merge .worktree-build --no-edit
+        git worktree remove --force .worktree-build
+        Write .build/merge-result.md with 'status: merged'
+      If REJECT:
+        git worktree remove --force .worktree-build
+        Write .build/merge-result.md with 'status: discarded'
+      If verdict file missing: REJECT default.
+      Exit 0 always." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\merge-result.md" exit /b 1
+    timeoutMs: 120000
+
+  # ── Evaluate ────────────────────────────────────────────────────────────
+  - id: evaluate
+    command: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Read .build/spec.md, .build/verdict-independent.md, .build/review.md,
+      .build/current-item.md, .build/merge-result.md.
+      Summarize this iteration's outcome.
+      Write .build/evaluate.md. Write NOW. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+      && if not exist "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\evaluate.md" exit /b 1
+    timeoutMs: 120000
+
+  # ── Verify (deterministic gate, last task) ──────────────────────────────
+  - id: verify
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+      "Set-Location 'D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app';
+      npx prisma generate 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      next build 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      npx next lint 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      npx tsc --noEmit 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 };
+      Write-Host 'verify-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run --yes -m opencode/deepseek-v4-flash-free
+      "Final verify failed (output below). Apply minimal fix.
+      Write corrected files directly. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app"
+    maxRetries: 3

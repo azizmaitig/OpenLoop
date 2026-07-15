@@ -1,0 +1,205 @@
+planName: dashboard-upscale
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 28
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: design-critique
+    dependsOn:
+      - read-state
+    command: >-
+      opencode run --agent verifier -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-spec.md' and
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\upscale-design.md'. Critique
+      the design against the spec. List P0/P1/P2 issues with APPROVE or REVISE. Print ONLY the critique markdown. Exit
+      0." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard" >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\design-critique.md"
+    timeoutMs: 240000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\dashboard\.build\design-critique.md
+    producedMustHaveContent: true
+    status: pass
+    durationMs: 81135
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: create-worktree
+    dependsOn:
+      - read-state
+    command: |
+      @echo off
+      set AL=D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop
+      set WT=D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build
+      git -C "%AL%" worktree remove --force "%WT%" 2>nul
+      git -C "%AL%" worktree prune 2>nul
+      rmdir /S /Q "%WT%" 2>nul
+      git -C "%AL%" branch -D dashboard-upscale 2>nul
+      git -C "%AL%" worktree add -b dashboard-upscale "%WT%" HEAD
+      if errorlevel 1 exit /b 1
+      xcopy "%AL%\dashboard\*" "%WT%\dashboard\" /E /Y /Q >nul
+      if errorlevel 1 exit /b 1
+      echo worktree-ok
+    timeoutMs: 30000
+    status: pass
+    durationMs: 17357
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: sync-build
+    dependsOn:
+      - design-critique
+      - create-worktree
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\dashboard\.build' 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\'; if (-not (Test-Path 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\upscale-spec.md')) { exit 1 }; Write-Host 'sync-ok'"
+    timeoutMs: 10000
+    status: pass
+    durationMs: 450
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: code-core
+    dependsOn:
+      - sync-build
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are working ONLY on the dashboard at --dir. Read
+      '.build/upscale-spec.md', '.build/upscale-design.md', and '.build/design-critique.md' (avoid its P0/P1 issues).
+      Implement ONLY the CORE additive modules in the current directory: src/lib/series.ts, src/hooks/usePlans.ts,
+      src/hooks/useLiveMetrics.ts, src/hooks/useDerivedSeries.ts, styles/tokens.css, and small edits to src/main.tsx
+      (notifyManager rAF), src/components/TabNav.tsx (ScreenId += 'plans'), src/App.tsx (lazy 'plans' tab +
+      useLiveMetrics), src/hooks/useTimeSeries.ts (2s). DO NOT read or edit any files outside this directory. Exit 0
+      when done." --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\src\lib\series.ts
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Fix ONLY the dashboard src/ files. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    maxRetries: 3
+    status: pass
+    durationMs: 135041
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: code-screens
+    dependsOn:
+      - code-core
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "You are working ONLY on the dashboard at --dir. Read
+      '.build/upscale-spec.md', '.build/upscale-design.md', and '.build/design-critique.md' (avoid its P0/P1 issues).
+      Implement screens and components in the current directory: src/screens/PlansScreen.tsx,
+      src/components/plans/PlanCard.tsx, src/components/plans/PlanProgress.tsx, src/components/plans/TaskChip.tsx,
+      src/components/Gauge.tsx, src/components/Sparkline.tsx, then EDIT src/components/ops/MetricCardGrid.tsx (append
+      ErrorRateCard, RecoveryCard, TriggerFireCard), src/components/ops/HealthScoreCard.tsx (use Gauge + tokens),
+      src/components/ops/MetricCard.tsx (sparkline + tokens), src/screens/OpsHealthScreen.tsx (feeder + 3 cards + denser
+      grid). DO NOT read or edit files outside this directory. Exit 0 when done." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\src\screens\PlansScreen.tsx
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Fix ONLY the dashboard src/ files. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    maxRetries: 3
+    status: pass
+    durationMs: 147581
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: install-deps
+    dependsOn:
+      - code-core
+      - code-screens
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bun install 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) {
+      exit 1 }; Write-Host 'install-ok'"
+    timeoutMs: 120000
+    healCommand: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bun install --force 2>&1 | Out-Null; if ($LASTEXITCODE
+      -ne 0) { exit 1 }; Write-Host 'install-heal-ok'"
+    maxRetries: 3
+    status: pass
+    durationMs: 421
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: test
+    dependsOn:
+      - install-deps
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard'; bunx vitest run 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0)
+      { exit 1 }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1 }; Write-Host
+      'test-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Fix the dashboard test/build failure. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    maxRetries: 3
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\dist\index.html
+    status: fail
+    durationMs: 544294
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: review
+    dependsOn:
+      - code-screens
+    command: >-
+      opencode run --agent verifier -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read the
+      implemented source under src/. Read '.build/upscale-design.md' and '.build/upscale-spec.md'. Code review:
+      correctness, security, readability, design adherence. Print findings with P0-P2 issues and a verdict. Exit 0."
+      --dir "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard" >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\review.md"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\review.md
+    producedMustHaveContent: true
+    status: pass
+    durationMs: 140349
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: verify-independent
+    dependsOn:
+      - code-screens
+    command: >-
+      opencode run --agent verifier -m opencode/deepseek-v4-flash-free "Load and follow the code-review skill. Read
+      '.build/upscale-spec.md' — its Acceptance Criteria section. Read the implemented source under src/. For EACH
+      criterion state PASS or FAIL with evidence. If any FAIL, verdict REJECT; otherwise APPROVE. Verdict must end with
+      'VERDICT: APPROVE' or 'VERDICT: REJECT'. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard" > "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\verdict-independent.md"
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\verdict-independent.md
+    producedMustHaveContent: true
+    status: fail
+    durationMs: 179965
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: evaluate
+    dependsOn:
+      - review
+      - verify-independent
+    command: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Read 'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\upscale-spec.md' (acceptance criteria),
+      'D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\verdict-independent.md', and
+      'D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\review.md'. Summarize
+      whether the built dashboard satisfies requirements. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard" > "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\evaluate.md"
+    timeoutMs: 120000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\.build\evaluate.md
+    producedMustHaveContent: true
+    status: fail
+    durationMs: 544294
+    completedAt: '2026-07-14T07:00:31.533Z'
+  - id: verify
+    dependsOn:
+      - test
+      - verify-independent
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$wt='D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop-build'; Set-Location \"$wt\dashboard\"; bunx vitest run 2>&1 | Out-Null; if
+      ($LASTEXITCODE -ne 0) { exit 1 }; bunx vite build --outDir dist 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit 1
+      }; $changed=(git -C \"$wt\" diff --stat -- src/ ':(exclude)src/dashboard' 2>&1 | Select-String -NotMatch
+      'warning:'); if ($changed -match '\S') { Write-Host 'ALERT: agent-loop/src/ modified'; exit 1 }; Write-Host
+      'verify-ok'"
+    timeoutMs: 300000
+    healCommand: >-
+      opencode run -m opencode/deepseek-v4-flash-free "Fix the final verify failure. Exit 0 when done." --dir
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard"
+    maxRetries: 3
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop-build\dashboard\dist\index.html
+    status: fail
+    durationMs: 544294
+    completedAt: '2026-07-14T07:00:31.533Z'

@@ -1,0 +1,65 @@
+# Continuous Improvement — calendar-app
+
+You are a senior full-stack engineer improving a React + Vite + TypeScript 6 calendar app.
+
+## Project facts
+- `D:\projects\obsidian\second brain\10-Projects\11-Active\calendar-app`
+- React 19, Vite 8, TypeScript 6, oxlint, date-fns, no test framework yet
+- Build: `npm run build` (tsc -b && vite build)
+- Lint: `npm run lint` (oxlint)
+- Key components: MonthView, WeekView, DayView, YearView, CalendarHeader, EventModal, MiniCalendar, SearchBar, StatsDashboard, AgendaSidebar, QuickAdd, CategoryFilter
+- Key hooks: useCalendar, useEvents, useUndoRedo, useCurrentTimePosition, useEventNotifications
+- Design system: OKLCH tokens, CSS custom properties, dark mode via [data-theme="dark"]
+- DESIGN.md, DESIGN-AUDIT.md, PRODUCT.md exist with prior design decisions
+
+## Your mission
+Read the current codebase, then pick **ONE** improvement from the four dimensions below — whichever has the highest impact right now.
+
+### 1. Features
+Scan for missing functionality compared to a production calendar:
+- Recurring events support (RRULE / repeat)
+- Drag-drop events to reschedule
+- Keyboard navigation (arrow keys, Enter, Escape)
+- iCal/CSV export
+- Event search/bulk edit
+- Undo-redo is partially implemented — complete it if partial
+- Timezone support
+
+### 2. Fixes
+- `npm run build` MUST pass before and after your change
+- `npm run lint` should pass
+- Check for TypeScript errors (`tsc --noEmit`)
+- Check for unhandled edge cases in existing hooks
+- Verify EventModal, QuickAdd, SearchBar work correctly
+
+### 3. Tests
+Calendar-app has NO test framework. If this is the first run:
+- Install vitest (add to devDependencies in package.json)
+- Create `vitest.config.ts` (use `vite.config.ts` import)
+- Write tests for at least one module:
+  - A hook test (e.g., useCalendar, useEvents)
+  - A component test
+  - A utility test (categories, nlpParser, ics)
+- Add `"test"` script to package.json: `vitest run`
+- Make sure `npm run build` still passes
+
+### 4. Upscale (design polish)
+- Steal from the best — check DESIGN-AUDIT.md for known gaps
+- CSS polish: consistent spacing, transitions, shadows
+- Add micro-interactions: hover states, focus rings, smooth transitions
+- Dark mode parity: ensure all elements have dark variants
+- Responsive: test at narrow widths, fix overflow/stacking
+- Performance: useMemo/useCallback for expensive renders (MonthView, YearView)
+
+## Constraints
+- **One improvement per run.** Do ONE thing well, not three things partially.
+- **Never remove existing functionality** — only add or fix.
+- **Never clobber `.build/`, `.omo/`, `.codegraph/`, or `node_modules/`**
+- **Never hardcode secrets, API keys, or credentials**
+- **Commit your changes** with a conventional commit message (`feat|fix|test|refactor: <description>`)
+- **Run `npm run build` before finishing** — it MUST exit 0. If it fails, fix the issue and retry.
+- **Run `npm run lint`** — fix any warnings that affect your change (pre-existing warnings are fine).
+- **If you install vitest for tests:** Do not remove existing dependencies. Add vitest to devDependencies, create vitest.config.ts, and write at least one meaningful test file.
+
+## Output
+Exit 0 on success. Print a summary of what you changed, why, and the next improvement you'd recommend for the next run.

@@ -18,7 +18,7 @@ function mockAPI(overrides?: Partial<DaemonAPI>): DaemonAPI {
       queueLength: 0,
       currentTask: null,
       startTime: new Date().toISOString(),
-      version: "0.6.0",
+      version: "8.0.0",
       pid: process.pid,
       port: 3000,
     }),
@@ -71,7 +71,7 @@ describe("routes — createFetchHandler", () => {
     const res = await handler(new Request("http://test/api/version"));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.version).toBe("0.6.0");
+    expect(body.version).toBe("8.0.0");
   });
 
   test("POST /stop returns ok and calls stop()", async () => {

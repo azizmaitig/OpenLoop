@@ -1,0 +1,85 @@
+planName: agentic-blog-self-building
+maxIterations: 50
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+    status: pass
+    durationMs: 34
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: assess
+    command: _scripts\assess.cmd
+    timeoutMs: 300000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\next-feature.md
+    producedMustHaveContent: true
+    status: pass
+    durationMs: 179201
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: implement
+    command: _scripts\implement.cmd
+    timeoutMs: 600000
+    produces: D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\feature.diff
+    producedMustHaveContent: true
+    healCommand: >-
+      opencode run --agent code-architect -m opencode/deepseek-v4-flash-free "Re-read the failing build/test output and
+      the diff at D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\feature.diff.
+      Apply the minimal fix and update the diff. Exit 0." --dir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app"
+    maxRetries: 3
+    status: pass
+    durationMs: 48392
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: install-deps
+    command: >-
+      taskkill /f /im node.exe >nul 2>&1 & cd /d "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app" && npm install && echo install-ok
+    timeoutMs: 120000
+    healCommand: >-
+      taskkill /f /im node.exe >nul 2>&1 & cd /d "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app" && if exist node_modules rmdir /s /q node_modules && npm install
+      && echo install-heal-ok
+    maxRetries: 3
+    status: pass
+    durationMs: 5373
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: test
+    command: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm run build >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" 2>&1 && if
+      errorlevel 1 ( type "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" && exit /b 1 ) && echo test-ok
+    timeoutMs: 300000
+    healCommand: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && if exist .next rmdir /s /q
+      .next && if exist node_modules rmdir /s /q node_modules && npm install && npm run build >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" 2>&1 && if
+      errorlevel 1 ( type "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" && exit /b 1 ) && echo test-heal-ok
+    maxRetries: 3
+    status: pass
+    durationMs: 23431
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: verify
+    command: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && npm run build >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" 2>&1 && if
+      errorlevel 1 ( type "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" && exit /b 1 ) && "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\_scripts\smoke-test.cmd" && echo verify-ok
+    timeoutMs: 300000
+    healCommand: >-
+      cd /d "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app" && if exist .next rmdir /s /q
+      .next && if exist node_modules rmdir /s /q node_modules && npm install && npm run build >
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" 2>&1 && if
+      errorlevel 1 ( type "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\loop-factory\web-app\.build\build.log" && exit /b 1 ) && echo verify-heal-ok
+    maxRetries: 3
+    status: pass
+    durationMs: 20790
+    completedAt: '2026-07-13T00:37:46.787Z'
+  - id: commit
+    command: _scripts\commit.cmd
+    timeoutMs: 10000
+    status: pass
+    durationMs: 1418
+    completedAt: '2026-07-13T00:37:46.787Z'

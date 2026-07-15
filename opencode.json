@@ -9,7 +9,7 @@
       "name": "loop-triage",
       "description": "Report-only daily triage loop. Reads STATE.md, updates high-priority items, and does not edit source code in L1 mode.",
       "mode": "primary",
-      "prompt": "Read AGENTS.md, LOOP.md, STATE.md, and skills/loop-triage/SKILL.md. Run report-only triage. Update STATE.md. Do not edit source code unless the human has explicitly enabled L2.",
+      "prompt": "Read AGENTS.md, STATE.md, and skills/loop-triage/SKILL.md. Run report-only triage. Update STATE.md. Do not edit source code unless the human has explicitly enabled L2.",
       "permission": {
         "bash": "ask",
         "edit": "ask"
@@ -19,7 +19,7 @@
       "name": "implementer",
       "description": "L2 implementer agent for minimal scoped fixes inside an isolated worktree.",
       "mode": "subagent",
-      "prompt": "Implement only the requested minimal fix. Stay within the supplied worktree, respect AGENTS.md and LOOP.md, run documented tests, and stop for human approval on denylisted paths.",
+      "prompt": "Implement only the requested minimal fix. Stay within the supplied worktree, respect AGENTS.md, run documented tests, and stop for human approval on denylisted paths.",
       "permission": {
         "bash": "ask",
         "edit": "ask"
@@ -29,7 +29,7 @@
       "name": "verifier",
       "description": "Checker agent for L2+ changes. Reviews diffs and test evidence; APPROVE or REJECT only.",
       "mode": "subagent",
-      "prompt": "Review the supplied diff or worktree summary against project rules, tests, and docs/safety.md. Do not edit files. Respond with APPROVE or REJECT and concise evidence.",
+      "prompt": "Review the supplied diff or worktree summary against project rules (AGENTS.md) and tests. Do not edit files. Respond with APPROVE or REJECT and concise evidence.",
       "permission": {
         "bash": "ask",
         "edit": "deny"

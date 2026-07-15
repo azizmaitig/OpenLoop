@@ -9,7 +9,7 @@ Run at the **start** and **end** of every loop iteration.
 
 ## Start of run
 
-1. Read `loop-budget.md` for daily caps and kill-switch flags.
+1. Read `AGENTS.md` — specifically the **Budget** section (daily caps, kill-switch).
 2. Read recent entries in `loop-run-log.md` (last 24h).
 3. Sum `tokens_estimate` for the active pattern today.
 4. If spend ≥ 80% of the pattern's daily cap → **report-only mode** (no sub-agents, no auto-fix).
@@ -35,6 +35,6 @@ Append one JSON object to `loop-run-log.md`:
 
 ## Rules
 
-- Never exceed `max sub-agent spawns/run` from `loop-budget.md`.
+- Never exceed `max sub-agent spawns/run` from `AGENTS.md` (Budget section).
 - High-cadence patterns (CI Sweeper, PR Babysitter) **must** early-exit when nothing is actionable.
-- On self-throttle, append a line to `loop-budget.md` under **Alerts This Period**.
+- On self-throttle, append a line to `AGENTS.md` under the Budget section as **Alerts This Period**.

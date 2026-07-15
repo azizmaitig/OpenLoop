@@ -33,7 +33,7 @@ describe("Daemon (v6)", () => {
       expect(resp.status).toBe(200);
       const body = await resp.json();
       expect(body.status).toBe("running");
-      expect(body.version).toBe("0.6.0");
+      expect(body.version).toBe("8.0.0");
       expect(typeof body.pid).toBe("number");
       expect(body.pid).toBeGreaterThan(0);
       expect(typeof body.port).toBe("number");
@@ -56,7 +56,7 @@ describe("Daemon (v6)", () => {
       const resp = await fetch(`http://localhost:${d.getState().port}/api/version`);
       expect(resp.status).toBe(200);
       const body = await resp.json();
-      expect(body.version).toBe("0.6.0");
+      expect(body.version).toBe("8.0.0");
     } finally {
       d.stop();
       await startPromise;
@@ -118,7 +118,7 @@ describe("Daemon (v6)", () => {
   test("getState() reflects status changes across lifecycle", () => {
     const d = new Daemon(0);
     expect(d.getState().status).toBe("idle");
-    expect(d.getState().version).toBe("0.6.0");
+    expect(d.getState().version).toBe("8.0.0");
     // start and stop not called — still idle
   });
 

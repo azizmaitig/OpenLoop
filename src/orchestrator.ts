@@ -7,6 +7,8 @@ import { parseYaml } from './yaml.js';
 import { isSafePath } from './shell.js';
 import { remainingRuns as budgetRemaining } from './budget.js';
 import { comparePriority } from './collision.js';
+import { resolvePlanConfig } from './plan-config.js';
+import { runLoop } from './loop-runner.js';
 
 let childIdCounter = 0;
 function generateChildId(): string {
@@ -18,6 +20,8 @@ export interface OrchestratorConfig {
   maxConcurrentLoops?: number;
   avgCostPerLoop?: number;
   getRemainingRuns?: () => Promise<number>;
+  /** Optional broadcast callback for live WS events (in-process child runs). */
+  broadcast?: (type: string, data: unknown) => void;
 }
 
 const DEFAULT_MAX_CONCURRENT = 4;
@@ -26,6 +30,10 @@ const DEFAULT_AVG_COST = 1;
 export class LoopOrchestrator {
   private children = new Map<string, ChildLoopState>();
   private pendingQueue: string[] = [];
+  /** Per-child abort controllers for in-process run cancellation */
+  private _childAbortControllers = new Map<string, AbortController>();
+  /** Guards against concurrent in-process runs for the same child (trigger re-fire) */
+  private _childRunInProgress = new Map<string, boolean>();
 
   private get runningCount(): number {
     let count = 0;
@@ -38,6 +46,7 @@ export class LoopOrchestrator {
   private _maxConcurrentLoops: number;
   private _avgCostPerLoop: number;
   private _getRemainingRuns: () => Promise<number>;
+  private _broadcast?: (type: string, data: unknown) => void;
 
   constructor(
     private taskQueue: TaskQueue,
@@ -47,6 +56,7 @@ export class LoopOrchestrator {
     this._maxConcurrentLoops = config?.maxConcurrentLoops ?? DEFAULT_MAX_CONCURRENT;
     this._avgCostPerLoop = config?.avgCostPerLoop ?? DEFAULT_AVG_COST;
     this._getRemainingRuns = config?.getRemainingRuns ?? (() => budgetRemaining());
+    this._broadcast = config?.broadcast;
   }
 
   /** Expose the pending queue length for observability (names in queue). */
@@ -142,6 +152,14 @@ export class LoopOrchestrator {
     child.status = 'stopped';
     this.deregisterChildTriggers(id);
 
+    // Abort any in-process run for this child
+    const ac = this._childAbortControllers.get(id);
+    if (ac) {
+      ac.abort();
+      this._childAbortControllers.delete(id);
+    }
+    this._childRunInProgress.delete(id);
+
     // A slot freed — try to start queued children
     await this.drainQueue();
     return 'ok';
@@ -193,7 +211,8 @@ export class LoopOrchestrator {
   }
 
   /**
-   * Actually start a child: set status, register triggers, enqueue task.
+   * Actually start a child: set status, register triggers, run in-process
+   * (if broadcast is available) or fall back to subprocess enqueue.
    * Assumes caller has already validated the child can start.
    */
   private async doStartChild(child: ChildLoopState): Promise<void> {
@@ -209,11 +228,49 @@ export class LoopOrchestrator {
       return;
     }
 
-    const enqueueCmd = child.planPath
-      ? `bun run loop.ts start --plan "${child.planPath}" --max-iterations 1`
-      : child.name;
-    this.taskQueue.enqueue(enqueueCmd, { timeoutMs: 60000 });
-    this.onTaskEnqueued?.();
+    if (child.planPath && this._broadcast) {
+      await this.runChildInProcess(child);
+    } else {
+      // Fallback: subprocess enqueue (no broadcast = no WS context)
+      const enqueueCmd = child.planPath
+        ? `bun run loop.ts start --plan "${child.planPath}" --max-iterations 1`
+        : child.name;
+      if (!this._broadcast) {
+        console.warn(`[orchestrator] No broadcast available — child "${child.name}" will run as subprocess, WS events will be missing`);
+      }
+      this.taskQueue.enqueue(enqueueCmd, { timeoutMs: 60000 });
+      this.onTaskEnqueued?.();
+    }
+  }
+
+  /**
+   * Run a child loop in-process with the daemon's broadcast callback.
+   * Resolves the plan config, creates an abort controller, and fires
+   * runLoop with maxIterations=1 so events propagate to WS clients.
+   */
+  private async runChildInProcess(child: ChildLoopState): Promise<void> {
+    const planPath = child.planPath!;
+    const ac = new AbortController();
+    this._childAbortControllers.set(child.id, ac);
+
+    try {
+      const config = await resolvePlanConfig(planPath);
+      await runLoop(config, {
+        broadcast: this._broadcast,
+        signal: ac.signal,
+        skipCheckpointPrompt: true,
+      });
+      child.lastRunAt = new Date().toISOString();
+    } catch (err) {
+      // Only update status if the child hasn't been explicitly stopped
+      const current = this.children.get(child.id);
+      if (current && current.status === 'running') {
+        current.status = 'error';
+        current.error = `In-process run failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    } finally {
+      this._childAbortControllers.delete(child.id);
+    }
   }
 
   /**
@@ -256,8 +313,15 @@ export class LoopOrchestrator {
           console.warn(`[orchestrator] Skipping trigger for child "${child.name}": invalid planPath`);
           return;
         }
-        this.taskQueue.enqueue(`bun run loop.ts start --plan "${child.planPath}" --max-iterations 1`, { timeoutMs: 60000 });
-        this.onTaskEnqueued?.();
+        if (child.planPath && this._broadcast) {
+          this.fireChildTriggerInProcess(child);
+        } else {
+          if (!this._broadcast) {
+            console.warn(`[orchestrator] No broadcast available — trigger for "${child.name}" runs as subprocess, WS events will be missing`);
+          }
+          this.taskQueue.enqueue(`bun run loop.ts start --plan "${child.planPath}" --max-iterations 1`, { timeoutMs: 60000 });
+          this.onTaskEnqueued?.();
+        }
       };
 
       if (t.type === 'cron') {
@@ -270,6 +334,41 @@ export class LoopOrchestrator {
         trigger.start();
       }
     }
+  }
+
+  /**
+   * Trigger-fired in-process child run. Guards against concurrent runs
+   * for the same child (trigger can fire while a previous run is still
+   * executing). Runs fire-and-forget — errors are logged, not thrown.
+   */
+  private fireChildTriggerInProcess(child: ChildLoopState): void {
+    const planPath = child.planPath!;
+    if (this._childRunInProgress.get(child.id)) return; // already running
+    this._childRunInProgress.set(child.id, true);
+
+    const ac = new AbortController();
+    this._childAbortControllers.set(child.id, ac);
+
+    void resolvePlanConfig(planPath)
+      .then(config =>
+        runLoop(config, {
+          broadcast: this._broadcast,
+          signal: ac.signal,
+          skipCheckpointPrompt: true,
+        }),
+      )
+      .then(() => {
+        child.lastRunAt = new Date().toISOString();
+      })
+      .catch(err => {
+        console.error(`[orchestrator] Trigger run for child "${child.name}" failed:`, err);
+      })
+      .finally(() => {
+        this._childRunInProgress.delete(child.id);
+        this._childAbortControllers.delete(child.id);
+      });
+
+    this.onTaskEnqueued?.();
   }
 
   private deregisterChildTriggers(childId: string): void {

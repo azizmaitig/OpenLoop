@@ -11,6 +11,7 @@ import type { StateMdFrontmatter } from './state.js';
 import { computeTaskMetrics, computeBudgetMetrics, computeTriggerMetrics } from './metrics.js';
 import { handleDashboardApi } from './dashboard-api.js';
 import { join } from 'node:path';
+import { VERSION } from './constants.js';
 
 /**
  * Register all HTTP/WS routes on a Bun.serve server config.
@@ -35,7 +36,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
 
     // GET /api/version
     if (url.pathname === '/api/version' && req.method === 'GET') {
-      return Response.json({ version: '0.6.0' });
+      return Response.json({ version: VERSION });
     }
 
     // POST /stop
@@ -183,7 +184,7 @@ export function createFetchHandler(api: DaemonAPI): (req: Request) => Response |
       const relativePath = url.pathname.startsWith('/dashboard/')
         ? url.pathname.slice('/dashboard/'.length)
         : url.pathname.slice('/'.length);
-      const filePath = join(import.meta.dirname, 'dashboard', relativePath);
+      const filePath = join(import.meta.dirname, '..', 'public', 'dashboard', relativePath);
       const file = Bun.file(filePath);
       const exists = await file.exists();
       if (exists) {

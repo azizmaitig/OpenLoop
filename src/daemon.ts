@@ -12,15 +12,26 @@ import type { StateMdFrontmatter } from './state.js';
 import { createFetchHandler } from './routes.js';
 import { createTsRing } from './dashboard-api.js';
 import type { DaemonAPI } from './daemon-api.js';
+import { runTick } from './daemon-tick.js';
 import { callLLM } from './llm.js';
 import { saveTaskHistory, readTaskHistory, listTaskHistory } from './history.js';
 import { isSafeCommand } from './shell.js';
+import { OUTPUT_DIR, VERSION } from './constants.js';
+
+/** Buffered stream event envelope — matches the live WS payload shape exactly so replays are identical. */
+interface BufferedStreamEvent {
+  type: string;
+  data: unknown;
+  timestamp: string;
+}
 
 export class Daemon {
   private _status: DaemonStatus;
   private server: ReturnType<typeof Bun.serve> | null = null;
   private dashboardHtml = '';
   private wsClients = new Set<ServerWebSocket<unknown>>();
+  private eventBuffer: BufferedStreamEvent[] = [];
+  private readonly EVENT_BUFFER_MAX = 500;
   private _stateInterval: ReturnType<typeof setInterval> | null = null;
   private _childInterval: ReturnType<typeof setInterval> | null = null;
   private _loopState: LoopState | null = null;
@@ -30,7 +41,7 @@ export class Daemon {
   private stopResolve: (() => void) | null = null;
   private processing = false;
   private _loopsConfigPath: string | undefined;
-  readonly taskQueue = new TaskQueue();
+  readonly taskQueue = new TaskQueue((type, data) => this.broadcast(type, data));
   readonly triggerManager = new TriggerManager();
   readonly orchestrator: LoopOrchestrator;
   readonly baseDir: string;
@@ -38,32 +49,36 @@ export class Daemon {
 
   private _planPath: string | undefined;
   private _cronExpr: string | undefined;
+  private _planConfig: LoopConfig | undefined;
 
   constructor(
     private _port: number = 3000,
     baseDir?: string,
-    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string; loopStateDir?: string },
+    opts?: { cron?: string; watchDir?: string; loopsConfig?: string; planPath?: string; loopStateDir?: string; planConfig?: LoopConfig },
   ) {
     this._planPath = opts?.planPath;
     this._cronExpr = opts?.cron;
+    this._planConfig = opts?.planConfig;
     this._loopsConfigPath = opts?.loopsConfig;
-    this.orchestrator = new LoopOrchestrator(this.taskQueue, this.triggerManager);
+    this.orchestrator = new LoopOrchestrator(this.taskQueue, this.triggerManager, {
+      broadcast: (type, data) => this.broadcast(type, data),
+    });
     this.orchestrator.onTaskEnqueued = () => this.maybeProcessQueue();
     this._status = {
       status: 'idle',
       uptime: 0,
       startTime: '',
-      version: '0.6.0',
+      version: VERSION,
       pid: process.pid,
       port: _port,
     };
     this.baseDir = baseDir ?? resolve('.');
 
-    // Loop ↔ daemon path contract: must match OUTPUT_DIR (src/state.ts:141) exactly
+    // Loop ↔ daemon path contract: must match OUTPUT_DIR (src/constants.ts) exactly
     // so we read the same STATE.md the phase loop writes. Resolve in the body, not
     // as a parameter default, because process.cwd() is not available at param-eval time.
     // Constraint: the standalone `start` loop and the daemon MUST share CWD.
-    const loopStateDir = opts?.loopStateDir ?? resolve(process.cwd(), '_agent-loop-output');
+    const loopStateDir = opts?.loopStateDir ?? OUTPUT_DIR;
     this._loopStateDir = loopStateDir;
 
     // Register triggers from CLI options
@@ -140,7 +155,7 @@ export class Daemon {
     };
 
     // Cache dashboard HTML
-    const dashboardPath = resolve(import.meta.dirname, 'dashboard', 'index.html');
+    const dashboardPath = resolve(import.meta.dirname, '..', 'public', 'dashboard', 'index.html');
     console.log('[dashboard] resolving:', dashboardPath);
     try {
       this.dashboardHtml = readFileSync(dashboardPath, 'utf-8');
@@ -158,6 +173,13 @@ export class Daemon {
             data: { ...this.getState(), children: this.orchestrator.listChildren() },
             timestamp: new Date().toISOString(),
           }));
+          // Replay buffered stream events so a late-joining client receives
+          // DAG/lifecycle events (fsm_transition, phase_start, …) already
+          // emitted this session — the fire-and-forget broadcast otherwise
+          // drops them for clients that connect after the first tick.
+          for (const event of this.eventBuffer) {
+            try { ws.send(JSON.stringify(event)); } catch { this.wsClients.delete(ws); break; }
+          }
         },
         close: (ws) => {
           this.wsClients.delete(ws);
@@ -226,6 +248,12 @@ export class Daemon {
       }
     }, 1000);
 
+    // If a plan was provided (no cron gives immediate in-process execution),
+    // run it via runTick so events broadcast to the WebSocket
+    if (this._planConfig && !this._cronExpr) {
+      runTick(this._planConfig, (type, data) => this.broadcast(type, data));
+    }
+
     await new Promise<void>((resolve) => {
       this.stopResolve = resolve;
     });
@@ -243,8 +271,11 @@ export class Daemon {
     console.error('Daemon stopped gracefully');
   }
 
-  private broadcast(type: string, data: unknown): void {
-    const message = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
+  broadcast(type: string, data: unknown): void {
+    const event: BufferedStreamEvent = { type, data, timestamp: new Date().toISOString() };
+    this.eventBuffer.push(event);
+    if (this.eventBuffer.length > this.EVENT_BUFFER_MAX) this.eventBuffer.shift();
+    const message = JSON.stringify(event);
     for (const ws of this.wsClients) {
       try { ws.send(message); } catch { this.wsClients.delete(ws); }
     }

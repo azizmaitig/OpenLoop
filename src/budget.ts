@@ -4,15 +4,6 @@ import { readRunLog as _readRunLog } from './run-log.js';
 const RUN_LOG_FILENAME = 'loop-run-log.md';
 const DEFAULT_DAILY_CAP = 100;
 
-export interface RunLogEntry {
-  run_id?: string;
-  pattern?: string;
-  runs_count?: number;
-  outcome?: string;
-  timestamp?: string;
-  [key: string]: unknown;
-}
-
 export interface BudgetStatus {
   status: 'ok' | 'report_only' | 'exceeded';
   runsToday: number;
