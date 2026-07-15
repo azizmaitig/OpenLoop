@@ -463,7 +463,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
       const r = checkpoint.results[id];
       return r?.status === 'fail' || r?.status === 'error';
     });
-    const iterOutcome: OutcomeStatus = anyFailed ? 'failed' : 'completed';
+    const iterOutcome = anyFailed ? 'fail' : 'pass';
     events.push({
       type: 'iteration_complete',
       data: { planName, iteration: iter, outcome: iterOutcome } satisfies IterationData,
