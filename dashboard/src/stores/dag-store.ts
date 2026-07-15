@@ -296,7 +296,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
     set({
       dagNodes: [...nodeMap.values()],
       dagEdges: [...edgeMap.values()],
-      history: [...state.history, ...events],
+      history: [...state.history, ...events].slice(-500),
     });
   },
 
