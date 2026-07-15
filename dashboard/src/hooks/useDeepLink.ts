@@ -81,7 +81,7 @@ export function useDeepLink() {
     const phaseLabel = selectedNode?.label ?? null;
 
     writeDeepLink(selectedPlanName, phaseLabel);
-  }, [selectedPlanName, selectedNodeId, dagNodes, replayMode]);
+  }, [selectedPlanName, selectedNodeId, replayMode]);
 
   const clearDeepLink = useCallback(() => {
     writeDeepLink(null, null);
