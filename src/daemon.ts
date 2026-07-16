@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { ServerWebSocket } from 'bun';
@@ -328,7 +329,13 @@ export class Daemon {
     const apiKey = process.env.LOOP_API_KEY;
     if (!apiKey) return true; // No key configured = open access
     const auth = req.headers.get('Authorization');
-    return auth === `Bearer ${apiKey}`;
+    if (auth === null) return false;
+    const encoder = new TextEncoder();
+    const expected = `Bearer ${apiKey}`;
+    const authBytes = encoder.encode(auth);
+    const expectedBytes = encoder.encode(expected);
+    if (authBytes.length !== expectedBytes.length) return false;
+    return timingSafeEqual(authBytes, expectedBytes);
   }
 
   private async isPaused(): Promise<boolean> {
