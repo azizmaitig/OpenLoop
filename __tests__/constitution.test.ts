@@ -70,4 +70,74 @@ describe("checkPlanAgainstConstitution", () => {
     const v = checkPlanAgainstConstitution(doc);
     expect(v.some((x) => x.rule === "non-empty")).toBe(true);
   });
+
+  // ── Gap #1: healCommand ─────────────────────────────────────────────────────
+
+  test("flags denylisted token in a healCommand", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "work", command: "echo do", timeoutMs: 30000, healCommand: "rm -rf .env" },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  // ── Gap #2: composite phases ────────────────────────────────────────────────
+
+  test("flags denylisted token in a composite phase command", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+      composites: [
+        {
+          id: "deploy",
+          phases: [
+            { id: "push", command: "git push" },
+            { id: "leak", command: "cat secrets/id_rsa" },
+          ],
+        },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("flags denylisted token in a composite phase healCommand", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+      composites: [
+        {
+          id: "test",
+          phases: [
+            { id: "run-tests", command: "bun test", healCommand: "cp auth/ .env" },
+          ],
+        },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  // ── Gap #3: case-insensitivity ──────────────────────────────────────────────
+
+  test("flags denylisted token case-insensitively (.ENV vs .env)", () => {
+    const doc = makePlan([
+      { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+      { id: "leak", command: "cat .ENV", timeoutMs: 30000 },
+      { id: "verify", command: "bun run build", timeoutMs: 120000 },
+    ]);
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
 });

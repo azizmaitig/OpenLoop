@@ -26,6 +26,32 @@ const DENYLISTED_PATH_TOKENS = [
   'credentials/',
 ];
 
+function findDenylistedToken(command: string): string | null {
+  const lower = command.toLowerCase();
+  for (const token of DENYLISTED_PATH_TOKENS) {
+    if (lower.includes(token)) {
+      return token;
+    }
+  }
+  return null;
+}
+
+function checkCommandForDenylistedPath(
+  command: string | undefined,
+  taskId: string,
+  source: string,
+  violations: ConstitutionViolation[],
+): void {
+  if (!command) return;
+  const token = findDenylistedToken(command);
+  if (token !== null) {
+    violations.push({
+      rule: 'denylisted-path',
+      detail: `${source} "${taskId}" references denylisted path token "${token}".`,
+    });
+  }
+}
+
 export interface ConstitutionViolation {
   rule: string;
   detail: string;
@@ -64,14 +90,17 @@ export function checkPlanAgainstConstitution(
     });
   }
 
-  // Rule: denylisted paths must never appear in any task command.
+  // Rule: denylisted paths must never appear in any command or healCommand.
   for (const task of tasks) {
-    for (const token of DENYLISTED_PATH_TOKENS) {
-      if (task.command && task.command.includes(token)) {
-        violations.push({
-          rule: 'denylisted-path',
-          detail: `Task "${task.id}" command references denylisted path token "${token}".`,
-        });
+    checkCommandForDenylistedPath(task.command, task.id, 'Task', violations);
+    checkCommandForDenylistedPath(task.healCommand, task.id, 'Task', violations);
+  }
+  if (doc.composites) {
+    for (const composite of doc.composites) {
+      for (const phase of composite.phases) {
+        const label = `Composite "${composite.id}"`;
+        checkCommandForDenylistedPath(phase.command, phase.id, label, violations);
+        checkCommandForDenylistedPath(phase.healCommand, phase.id, label, violations);
       }
     }
   }
