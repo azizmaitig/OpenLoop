@@ -26,19 +26,43 @@ const KIND_ICON: Record<string, LucideIcon> = {
   gate: Shield,
 };
 
-function DagNode({ data }: NodeProps) {
+const KIND_RAIL: Record<string, string> = {
+  phase: 'var(--accent)',
+  task: 'var(--text-dim)',
+  loop: 'var(--ok)',
+  gate: 'var(--warn)',
+};
+
+function DagNode({ data, selected }: NodeProps) {
   const d = data as unknown as DagNodeData;
   const Icon = KIND_ICON[d.kind] ?? Play;
   const statusColor = STATUS_COLOR[d.status] ?? 'var(--text-dim)';
+  const railColor = KIND_RAIL[d.kind] ?? 'var(--accent)';
   const isRunning = d.status === 'running';
+  const classes = [
+    'dag-node',
+    `dag-node--${d.kind}`,
+    `status-${d.status}`,
+    selected ? 'selected' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div className="dag-node">
+    <div
+      className={classes}
+      style={{
+        boxShadow: selected
+          ? `0 0 0 2px var(--accent), 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px -8px ${statusColor}`
+          : `0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px -8px ${statusColor}`,
+        borderLeft: `3px solid ${railColor}`,
+      }}
+    >
       <Handle type="target" position={Position.Top} className="dag-handle" />
 
       <div className="dag-node-body">
         <div className="dag-node-header">
-          <Icon size={14} className="dag-node-icon" />
+          <Icon size={14} strokeWidth={1.5} className="dag-node-icon" />
           <span className="dag-node-label">{d.label}</span>
         </div>
 
@@ -61,7 +85,11 @@ function DagNode({ data }: NodeProps) {
           {d.kind && <span className="dag-node-kind">{d.kind}</span>}
         </div>
 
-        {d.command && <div className="dag-node-command">{d.command}</div>}
+        {d.command && (
+          <div className="dag-node-command" title={d.command}>
+            {d.command}
+          </div>
+        )}
 
         {d.durationMs != null && (
           <div className="dag-node-meta">

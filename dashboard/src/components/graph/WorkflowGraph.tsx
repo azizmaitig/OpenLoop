@@ -15,7 +15,23 @@ import '@xyflow/react/dist/base.css';
 import DagNode from './DagNode';
 import { computeLayout, NODE_W } from '../../lib/dag-layout';
 import { useDagStore } from '../../stores/dag-store';
-import type { DagNodeData } from '../../lib/types';
+import type { DagNodeData, DagNodeStatus } from '../../lib/types';
+
+/** Map a node status to an edge stroke color so completed/failed paths carry
+ *  the same semantic color as the node they target. */
+function edgeStrokeForTarget(targetNode: DagNodeData | undefined): string {
+  if (!targetNode) return 'var(--border)';
+  const map: Record<DagNodeStatus, string> = {
+    completed: 'var(--ok)',
+    failed: 'var(--crit)',
+    running: 'var(--warn)',
+    queued: 'var(--text-dim)',
+    cancelled: 'var(--crit)',
+    paused: 'var(--accent)',
+    idle: 'var(--text-dim)',
+  };
+  return map[targetNode.status] ?? 'var(--border)';
+}
 
 const nodeTypes = { dagNode: DagNode };
 
@@ -82,6 +98,7 @@ export function WorkflowGraph() {
       dagEdges.map((e) => {
         const target = dagNodes.find((n) => n.id === e.target);
         const animated = target?.status === 'running';
+        const stroke = edgeStrokeForTarget(target);
         return {
           id: e.id,
           source: e.source,
@@ -89,12 +106,14 @@ export function WorkflowGraph() {
           type: 'smoothstep',
           animated,
           style: {
-            stroke: animated ? 'var(--warn)' : 'var(--border)',
-            strokeWidth: animated ? 2 : 1.5,
+            stroke,
+            strokeWidth: animated || target?.status === 'failed' ? 2 : 1.5,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: animated ? 'var(--warn)' : 'var(--text-dim)',
+            color: stroke,
+            width: animated ? 16 : 12,
+            height: animated ? 16 : 12,
           },
         };
       }),

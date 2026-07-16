@@ -120,11 +120,22 @@ table.dt tbody tr:hover { background: var(--bg-elev-2); }
 }
 .dag-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  height: 100%; gap: 8px; text-align: center;
+  height: 100%; gap: 12px; text-align: center;
+  padding: 48px 24px;
 }
-.dag-empty-icon { font-size: 48px; opacity: 0.3; }
-.dag-canvas { height: 100%; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.dag-controls { button { filter: invert(1); } }
+.dag-empty-icon {
+  font-size: 40px; opacity: 0.25;
+  width: 72px; height: 72px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elev-2);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.dag-empty h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.dag-empty p { max-width: 360px; margin: 0; line-height: 1.5; }
+.dag-canvas { height: 100%; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: radial-gradient(ellipse at 50% 0%, rgba(88,166,255,0.03) 0%, transparent 70%); }
+.dag-controls button { filter: invert(1); }
 
 /* Resize handle */
 .dag-resize-handle {
@@ -158,20 +169,35 @@ table.dt tbody tr:hover { background: var(--bg-elev-2); }
 
 /* ── Custom DAG Nodes ─────────────────────────────────────────────────────── */
 .dag-node {
-  background: var(--bg-elev); border: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--bg-elev) 0%, var(--bg-elev-2) 100%);
+  border: 1px solid var(--border);
   border-radius: 10px; padding: 0; min-width: 200px;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.2s, transform 0.15s;
+  cursor: pointer;
 }
-.dag-node:hover { box-shadow: 0 0 0 2px var(--border); }
+/* Hover: lift + stronger shadow */
+.dag-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 8px 24px -8px !important;
+}
+/* Active: press down */
+.dag-node:active {
+  transform: translateY(0px);
+  transition-duration: 0.05s;
+}
+/* Selected: accent ring overlay */
+.dag-node.selected {
+  border-color: var(--accent);
+}
 .dag-node-body { padding: 10px 12px; }
 .dag-node-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .dag-node-icon { color: var(--text-dim); flex-shrink: 0; }
 .dag-node-label { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dag-node-status-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .dag-node-kind { font-size: 10px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px; }
-.dag-node-command { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 2px; }
-.dag-node-meta { font-size: 10px; color: var(--text-dim); }
+.dag-node-command { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.dag-node-meta { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .dag-pill {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 600;
@@ -185,5 +211,47 @@ table.dt tbody tr:hover { background: var(--bg-elev-2); }
 }
 .dag-handle {
   width: 8px !important; height: 8px !important;
-  background: var(--border) !important; border: 2px solid var(--bg-elev) !important;
+  background: var(--bg-elev-2) !important; border: 2px solid var(--bg) !important;
+}
+
+/* Edge — status-tinted paths (applied via inline style in WorkflowGraph, but we
+   add a subtle glow to the animated running edge here) */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 8 4;
+  animation: dag-edge-run 0.8s linear infinite;
+}
+@keyframes dag-edge-run {
+  to { stroke-dashoffset: -12; }
+}
+
+/* Checkpoint cards — left accent bar via inline border */
+.checkpoint-card {
+  cursor: pointer; text-align: left; width: 100%;
+  border-left: 3px solid var(--accent);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.checkpoint-card:hover {
+  border-left-color: var(--text);
+  box-shadow: 0 2px 8px -4px rgba(0,0,0,0.4);
+}
+.checkpoint-card.loading { opacity: 0.6; }
+
+/* Timeline scrubber accent */
+.replay-timeline input[type="range"] {
+  height: 4px; cursor: pointer;
+  background: var(--bg-elev-2);
+  border-radius: 999px;
+  -webkit-appearance: none; appearance: none;
+}
+.replay-timeline input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.replay-timeline input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg);
+  cursor: pointer;
 }
