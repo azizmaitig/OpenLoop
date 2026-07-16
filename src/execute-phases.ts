@@ -81,6 +81,16 @@ export async function executePhaseGroup(
 
   // ── Concurrent layer path ─────────────────────────────────────────────
   const layers = topoSortLayers(phases);
+  // Flatten layers (layer-major, declaration order within a layer) into a
+  // global execution-order index. This is the deterministic `order` the
+  // dashboard uses to chain phases, even when layers run concurrently.
+  const orderIndex = new Map<string, number>();
+  let flatOrder = 0;
+  for (const layer of layers) {
+    for (const phase of layer) {
+      orderIndex.set(phase.name, flatOrder++);
+    }
+  }
   let currentState = state;
   let allPassed = true;
 
@@ -90,7 +100,8 @@ export async function executePhaseGroup(
     }
     if (layer.length === 1) {
       // Singleton layer: run sequentially — same code path for clarity
-      const result = await runSinglePhase(deps, currentState, iteration, layer[0], deps.signal);
+      const phase = layer[0];
+      const result = await runSinglePhase(deps, currentState, iteration, phase, deps.signal, orderIndex.get(phase.name) ?? 0);
       currentState = result.state;
       if (!result.passed) {
         allPassed = false;
@@ -107,7 +118,7 @@ export async function executePhaseGroup(
       : ac.signal;
     const phaseResults = await Promise.allSettled(
       layer.map((phase) =>
-        runSinglePhase(deps, currentState, iteration, phase, combinedSignal),
+        runSinglePhase(deps, currentState, iteration, phase, combinedSignal, orderIndex.get(phase.name) ?? 0),
       ),
     );
 
@@ -225,6 +236,7 @@ async function runSinglePhase(
   iteration: number,
   phase: PhaseDef,
   signal?: AbortSignal,
+  order: number = 0,
 ): Promise<SinglePhaseResult> {
   // Check for cancellation from a failed sibling
   if (signal?.aborted) {
@@ -249,6 +261,7 @@ async function runSinglePhase(
     phaseName: phase.name,
     command: phase.command,
     dependsOn: phase.dependsOn,
+    order,
   }));
 
   let result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
@@ -422,11 +435,12 @@ async function executePhasesSequential(
 ): Promise<PhaseGroupResult> {
   let allPassed = true;
 
-  for (const phase of phases) {
+  for (let i = 0; i < phases.length; i++) {
+    const phase = phases[i];
     if (deps.signal?.aborted) {
       return { allPassed: false, state };
     }
-    const sr = await runSinglePhase(deps, state, iteration, phase, deps.signal);
+    const sr = await runSinglePhase(deps, state, iteration, phase, deps.signal, i);
     state = sr.state;
     if (!sr.passed) allPassed = false;
   }

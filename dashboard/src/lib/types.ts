@@ -258,8 +258,16 @@ export interface DagNodeData {
   completedAt?: string;
   durationMs?: number;
   dependsOn?: string[];
+  /** Zero-based execution order within the iteration, from the engine's phase_start event. Drives deterministic chaining. */
+  order?: number;
   iteration?: number;
   planName?: string;
+  /** Extension point: tools used by this phase (not yet emitted by backend). */
+  toolsUsed?: string[];
+  /** Extension point: LLM context token count (not yet emitted by backend). */
+  contextTokens?: number;
+  /** Extension point: TODO items generated (not yet emitted by backend). */
+  todos?: string[];
 }
 
 export interface DagEdgeData {

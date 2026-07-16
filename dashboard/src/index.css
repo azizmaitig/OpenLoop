@@ -198,6 +198,15 @@ table.dt tbody tr:hover { background: var(--bg-elev-2); }
 .dag-node-kind { font-size: 10px; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px; }
 .dag-node-command { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
 .dag-node-meta { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.dag-node-iteration-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
 .dag-pill {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 600;
@@ -212,6 +221,33 @@ table.dt tbody tr:hover { background: var(--bg-elev-2); }
 .dag-handle {
   width: 8px !important; height: 8px !important;
   background: var(--bg-elev-2) !important; border: 2px solid var(--bg) !important;
+}
+
+/* Live/Stack mode toggle */
+.dag-mode-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+.dag-mode-toggle button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-dim);
+  transition: color 0.15s, border-color 0.15s;
+}
+.dag-mode-toggle button:hover {
+  color: var(--text);
 }
 
 /* Edge — status-tinted paths (applied via inline style in WorkflowGraph, but we

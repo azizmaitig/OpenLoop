@@ -20,6 +20,7 @@ interface PhaseStartData {
   iteration: number;
   command?: string;
   dependsOn?: string[];
+  order?: number;
 }
 
 interface PhaseCompleteData {
@@ -67,12 +68,12 @@ function asOutcomeStatus(v: string | undefined): DagNodeStatus {
   return 'running';
 }
 
-function phaseNodeId(planName: string, phaseName: string, iteration: number): string {
-  return `phase-${planName}-${phaseName}-i${iteration}`;
+function phaseNodeId(planName: string, phaseName: string, iteration: number, liveMode?: boolean): string {
+  return liveMode ? `phase-${planName}-${phaseName}` : `phase-${planName}-${phaseName}-i${iteration}`;
 }
 
-function loopNodeId(planName: string, iteration: number): string {
-  return `loop-${planName}-i${iteration}`;
+function loopNodeId(planName: string, iteration: number, liveMode?: boolean): string {
+  return liveMode ? `loop-${planName}` : `loop-${planName}-i${iteration}`;
 }
 
 function gateNodeId(planName: string, from: string, to: string): string {
@@ -82,11 +83,17 @@ function gateNodeId(planName: string, from: string, to: string): string {
 /**
  * Apply a batch of StreamEvents to a node/edge map, returning the updated maps.
  * Shared by processEvents (live stream) and setScrubPos (replay scrub).
+ *
+ * @param liveMode – When true, collapse per-iteration phase/loop nodes into a single
+ *   canonical node keyed WITHOUT the iteration suffix, preventing unbounded growth in
+ *   infinite-loop runs. When false (replay mode), use iteration-suffixed IDs for
+ *   historical fidelity.
  */
 function applyEvents(
   events: StreamEvent[],
   initialNodes: DagNodeData[] = [],
   initialEdges: DagEdgeData[] = [],
+  liveMode: boolean = true,
 ): { nodeMap: Map<string, DagNodeData>; edgeMap: Map<string, DagEdgeData> } {
   const nodeMap = new Map(initialNodes.map((n) => [n.id, n]));
   const edgeMap = new Map(initialEdges.map((e) => [e.id, e]));
@@ -95,21 +102,38 @@ function applyEvents(
     switch (ev.type) {
       case 'phase_start': {
         const d = ev.data as PhaseStartData;
-        const id = phaseNodeId(d.planName, d.phaseName, d.iteration);
-        nodeMap.set(id, {
-          id,
-          label: d.phaseName,
-          kind: 'phase',
-          status: 'running',
-          command: d.command,
-          startedAt: ev.timestamp,
-          dependsOn: d.dependsOn,
-          iteration: d.iteration,
-          planName: d.planName,
-        });
+        const id = phaseNodeId(d.planName, d.phaseName, d.iteration, liveMode);
+        const existing = nodeMap.get(id);
+        if (existing && liveMode) {
+          // Live mode: update canonical node with latest iteration status
+          nodeMap.set(id, {
+            ...existing,
+            status: 'running',
+            command: d.command ?? existing.command,
+            startedAt: ev.timestamp,
+            dependsOn: d.dependsOn ?? existing.dependsOn,
+            order: d.order ?? existing.order,
+            iteration: d.iteration, // track the highest iteration
+            completedAt: undefined, // clear previous completion when restarting
+            durationMs: undefined,
+          });
+        } else {
+          nodeMap.set(id, {
+            id,
+            label: d.phaseName,
+            kind: 'phase',
+            status: 'running',
+            command: d.command,
+            startedAt: ev.timestamp,
+            dependsOn: d.dependsOn,
+            order: d.order,
+            iteration: d.iteration,
+            planName: d.planName,
+          });
+        }
         if (d.dependsOn) {
           for (const dep of d.dependsOn) {
-            const src = phaseNodeId(d.planName, dep, d.iteration);
+            const src = phaseNodeId(d.planName, dep, d.iteration, liveMode);
             const eid = `${src}->${id}`;
             edgeMap.set(eid, { id: eid, source: src, target: id });
           }
@@ -118,7 +142,7 @@ function applyEvents(
       }
       case 'phase_complete': {
         const d = ev.data as PhaseCompleteData;
-        const id = phaseNodeId(d.planName, d.phaseName, d.iteration);
+        const id = phaseNodeId(d.planName, d.phaseName, d.iteration, liveMode);
         const existing = nodeMap.get(id);
         if (existing) {
           nodeMap.set(id, {
@@ -176,21 +200,34 @@ function applyEvents(
       }
       case 'iteration_start': {
         const d = ev.data as IterationData;
-        const id = loopNodeId(d.planName, d.iteration);
-        nodeMap.set(id, {
-          id,
-          label: `Iteration ${d.iteration}`,
-          kind: 'loop',
-          status: 'running',
-          iteration: d.iteration,
-          planName: d.planName,
-          startedAt: ev.timestamp,
-        });
+        const id = loopNodeId(d.planName, d.iteration, liveMode);
+        const existing = nodeMap.get(id);
+        if (existing && liveMode) {
+          // Live mode: update canonical loop node, increment per-plan run counter
+          const nextCount = (existing.iteration ?? 0) + 1;
+          nodeMap.set(id, {
+            ...existing,
+            status: 'running',
+            iteration: nextCount,
+            startedAt: ev.timestamp,
+            completedAt: undefined,
+          });
+        } else {
+          nodeMap.set(id, {
+            id,
+            label: liveMode ? 'Loop' : `Iteration ${d.iteration}`,
+            kind: 'loop',
+            status: 'running',
+            iteration: d.iteration,
+            planName: d.planName,
+            startedAt: ev.timestamp,
+          });
+        }
         break;
       }
       case 'iteration_complete': {
         const d = ev.data as IterationData;
-        const id = loopNodeId(d.planName, d.iteration);
+        const id = loopNodeId(d.planName, d.iteration, liveMode);
         const existing = nodeMap.get(id);
         if (existing) {
           nodeMap.set(id, {
@@ -220,6 +257,129 @@ function applyEvents(
     }
   }
 
+  // Live mode: synthesize LOOP back-edge from the sink phase back to the loop node.
+  // This represents the FSM verify → LOOP → init transition.
+  if (liveMode) {
+    const loopNodes = [...nodeMap.values()].filter((n) => n.kind === 'loop');
+    const phaseNodes = [...nodeMap.values()].filter((n) => n.kind === 'phase');
+
+    for (const loop of loopNodes) {
+      if (phaseNodes.length === 0) continue;
+
+      // Find the sink phase — a phase that no other phase edge originates from
+      const phaseSet = new Set(phaseNodes.map((n) => n.id));
+      const outgoingPhaseSources = new Set<string>();
+      for (const edge of edgeMap.values()) {
+        if (phaseSet.has(edge.source) && phaseSet.has(edge.target)) {
+          outgoingPhaseSources.add(edge.source);
+        }
+      }
+
+      // Sinks are phases with no outgoing edge to another phase
+      const sinks = phaseNodes.filter((n) => !outgoingPhaseSources.has(n.id));
+      const sinkId = sinks.length > 0 ? sinks[sinks.length - 1].id : phaseNodes[phaseNodes.length - 1].id;
+      const backEdgeId = `loop-back-${loop.planName ?? 'default'}`;
+
+      // Only set if not already present (idempotent)
+      if (!edgeMap.has(backEdgeId)) {
+        edgeMap.set(backEdgeId, {
+          id: backEdgeId,
+          source: sinkId,
+          target: loop.id,
+        });
+      }
+    }
+
+    // Synthesize deterministic intra-phase chain edges from the engine's
+    // `order` field. This is the single source of truth for phase sequence —
+    // no more guessing from Map insertion / event arrival order.
+    // Phases that already carry explicit `dependsOn` edges keep those; only
+    // order-indexed phases without an incoming dependsOn edge are chained.
+    {
+      const allPhases = [...nodeMap.values()].filter((n) => n.kind === 'phase');
+      const hasOrder = allPhases.filter((n) => typeof n.order === 'number');
+      if (hasOrder.length >= 2) {
+        hasOrder.sort((a, b) => (a.order as number) - (b.order as number));
+        // Set of phase ids that are already targets of a dependsOn edge.
+        const dependsTargets = new Set<string>();
+        for (const edge of edgeMap.values()) {
+          if (phaseNodes.some((p) => p.id === edge.source) && phaseNodes.some((p) => p.id === edge.target)) {
+            dependsTargets.add(edge.target);
+          }
+        }
+        for (let i = 0; i < hasOrder.length - 1; i++) {
+          const src = hasOrder[i];
+          const tgt = hasOrder[i + 1];
+          // Don't synthesize over an explicit dependsOn edge into tgt.
+          if (dependsTargets.has(tgt.id)) continue;
+          const chainId = `${src.id}->${tgt.id}`;
+          if (!edgeMap.has(chainId)) {
+            edgeMap.set(chainId, { id: chainId, source: src.id, target: tgt.id });
+          }
+        }
+      }
+    }
+
+    // Wire gate nodes into the canonical flow so the DAG reads as:
+    // loop → gate(init→run) → first phase → ... → last phase → gate(run→verify→done/init) → loop
+    const gateNodes = [...nodeMap.values()].filter((n) => n.kind === 'gate');
+    for (const gate of gateNodes) {
+      const plan = gate.planName;
+      const labelParts = gate.label?.split(' → ');
+      if (labelParts?.length !== 2) continue;
+      const [from, to] = labelParts;
+      const loopForPlan = [...nodeMap.values()].find((n) => n.kind === 'loop' && n.planName === plan);
+
+      if (!loopForPlan) continue;
+
+      if (from === 'init' && to === 'run') {
+        // Edge: loop → gate(init→run)
+        const loopToGateId = `${loopForPlan.id}->${gate.id}`;
+        if (!edgeMap.has(loopToGateId)) {
+          edgeMap.set(loopToGateId, { id: loopToGateId, source: loopForPlan.id, target: gate.id });
+        }
+        // Edge: gate(init→run) → first phase
+        const allPhases = [...nodeMap.values()].filter((n) => n.kind === 'phase');
+        const incomingPhaseTargets = new Set<string>();
+        for (const edge of edgeMap.values()) {
+          if (allPhases.some((n) => n.id === edge.source) && allPhases.some((n) => n.id === edge.target)) {
+            incomingPhaseTargets.add(edge.target);
+          }
+        }
+        const firstPhase = allPhases.find((n) => !incomingPhaseTargets.has(n.id));
+        if (firstPhase) {
+          const gateToPhaseId = `${gate.id}->${firstPhase.id}`;
+          if (!edgeMap.has(gateToPhaseId)) {
+            edgeMap.set(gateToPhaseId, { id: gateToPhaseId, source: gate.id, target: firstPhase.id });
+          }
+        }
+      } else if (to === 'init') {
+        // LOOP back-edge gate: gate(verify→init) → loop (feeds the back-edge)
+        const gateToLoopId = `${gate.id}->${loopForPlan.id}`;
+        if (!edgeMap.has(gateToLoopId)) {
+          edgeMap.set(gateToLoopId, { id: gateToLoopId, source: gate.id, target: loopForPlan.id });
+        }
+      } else {
+        // Other gates (run→verify, verify→done): connect from last sink phase
+        const allPhases = [...nodeMap.values()].filter((n) => n.kind === 'phase');
+        const outgoingPhaseSources = new Set<string>();
+        for (const edge of edgeMap.values()) {
+          if (allPhases.some((n) => n.id === edge.source) && allPhases.some((n) => n.id === edge.target)) {
+            outgoingPhaseSources.add(edge.source);
+          }
+        }
+        const sinks = allPhases.filter((n) => !outgoingPhaseSources.has(n.id));
+        const lastPhase = sinks.length > 0 ? sinks[sinks.length - 1] : allPhases[allPhases.length - 1];
+        if (lastPhase) {
+          const lastPhaseToGateId = `${lastPhase.id}->${gate.id}`;
+          if (!edgeMap.has(lastPhaseToGateId)) {
+            edgeMap.set(lastPhaseToGateId, { id: lastPhaseToGateId, source: lastPhase.id, target: gate.id });
+          }
+        }
+      }
+    }
+  }
+
   return { nodeMap, edgeMap };
 }
 
@@ -228,6 +388,9 @@ export interface DagStore {
   dagEdges: DagEdgeData[];
   selectedNodeId: string | null;
   history: StreamEvent[];
+
+  // ── Live mode (collapse per-iteration nodes into canonical nodes) ────────
+  liveMode: boolean;
 
   // ── Replay mode ──────────────────────────────────────────────────────────
   replayMode: boolean;
@@ -248,6 +411,7 @@ export interface DagStore {
 
   setSelectedNode: (id: string | null) => void;
   processEvents: (events: StreamEvent[]) => void;
+  setLiveMode: (mode: boolean) => void;
   reset: () => void;
 
   // ── Replay actions ───────────────────────────────────────────────────────
@@ -272,6 +436,9 @@ export const useDagStore = create<DagStore>((set, get) => ({
   selectedNodeId: null,
   history: [],
 
+  // Live mode default (collapse iterations into canonical nodes)
+  liveMode: true,
+
   // Replay defaults
   replayMode: false,
   selectedPlanName: null,
@@ -292,7 +459,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
 
   processEvents: (events) => {
     const state = get();
-    const { nodeMap, edgeMap } = applyEvents(events, state.dagNodes, state.dagEdges);
+    const { nodeMap, edgeMap } = applyEvents(events, state.dagNodes, state.dagEdges, state.liveMode);
     set({
       dagNodes: [...nodeMap.values()],
       dagEdges: [...edgeMap.values()],
@@ -300,12 +467,15 @@ export const useDagStore = create<DagStore>((set, get) => ({
     });
   },
 
+  setLiveMode: (mode) => set({ liveMode: mode }),
+
   reset: () =>
     set({
       dagNodes: [],
       dagEdges: [],
       selectedNodeId: null,
       history: [],
+      liveMode: true,
       replayMode: false,
       selectedPlanName: null,
       replayEvents: [],
@@ -358,7 +528,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
         ? state.replayEvents
         : state.replayEvents.slice(0, pos + 1);
 
-    const { nodeMap, edgeMap } = applyEvents(events);
+    const { nodeMap, edgeMap } = applyEvents(events, [], [], false);
     set({
       dagNodes: [...nodeMap.values()],
       dagEdges: [...edgeMap.values()],
@@ -470,8 +640,8 @@ export const useDagStore = create<DagStore>((set, get) => ({
       timestamp: checkpoint.updatedAt,
     });
 
-    // Store and process all events in one atomic update
-    const { nodeMap, edgeMap } = applyEvents(events);
+    // Store and process all events in one atomic update (replay mode = not live)
+    const { nodeMap, edgeMap } = applyEvents(events, [], [], false);
     set({
       selectedPlanName: planName,
       replayEvents: events,

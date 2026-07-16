@@ -110,6 +110,35 @@ export function NodeDetail({ node, onClose, emptyMessage }: {
             </ul>
           </div>
         )}
+        {/* Extension point fields — rendered only when the backend emits them */}
+        {node.toolsUsed && node.toolsUsed.length > 0 && (
+          <div className="dag-detail-field">
+            <span className="dag-detail-label">Tools Used</span>
+            <ul className="dag-dep-list">
+              {node.toolsUsed.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {node.contextTokens != null && (
+          <div className="dag-detail-field">
+            <span className="dag-detail-label">Context Tokens</span>
+            <span className="muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {node.contextTokens.toLocaleString()}
+            </span>
+          </div>
+        )}
+        {node.todos && node.todos.length > 0 && (
+          <div className="dag-detail-field">
+            <span className="dag-detail-label">TODOs</span>
+            <ul className="dag-dep-list">
+              {node.todos.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </>
   );

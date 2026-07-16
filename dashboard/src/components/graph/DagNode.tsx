@@ -40,6 +40,7 @@ function DagNode({ data, selected }: NodeProps) {
   const statusColor = STATUS_COLOR[d.status] ?? 'var(--text-dim)';
   const railColor = KIND_RAIL[d.kind] ?? 'var(--accent)';
   const isRunning = d.status === 'running';
+  const isLoop = d.kind === 'loop';
   const classes = [
     'dag-node',
     `dag-node--${d.kind}`,
@@ -53,7 +54,9 @@ function DagNode({ data, selected }: NodeProps) {
     <div
       className={classes}
       style={{
-        boxShadow: selected
+        boxShadow: isRunning && isLoop
+          ? `0 0 0 1px var(--warn), 0 0 18px -4px var(--warn), 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px -8px ${statusColor}`
+          : selected
           ? `0 0 0 2px var(--accent), 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px -8px ${statusColor}`
           : `0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px -8px ${statusColor}`,
         borderLeft: `3px solid ${railColor}`,
@@ -65,6 +68,20 @@ function DagNode({ data, selected }: NodeProps) {
         <div className="dag-node-header">
           <Icon size={14} strokeWidth={1.5} className="dag-node-icon" />
           <span className="dag-node-label">{d.label}</span>
+          {/* Iteration counter badge on loop nodes */}
+          {isLoop && d.iteration != null && (
+            <span
+              className="dag-node-iteration-badge"
+              style={{
+                background: isRunning
+                  ? 'color-mix(in srgb, var(--warn) 18%, transparent)'
+                  : 'color-mix(in srgb, var(--ok) 18%, transparent)',
+                color: isRunning ? 'var(--warn)' : 'var(--ok)',
+              }}
+            >
+              x{d.iteration}
+            </span>
+          )}
         </div>
 
         <div className="dag-node-status-row">
@@ -99,6 +116,7 @@ function DagNode({ data, selected }: NodeProps) {
         )}
       </div>
 
+      {isLoop && <Handle type="target" position={Position.Bottom} id="loop-back" className="dag-handle" />}
       <Handle type="source" position={Position.Bottom} className="dag-handle" />
     </div>
   );

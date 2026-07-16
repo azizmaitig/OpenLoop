@@ -62,6 +62,8 @@ export function WorkflowGraph() {
   const dagEdges = useDagStore((s) => s.dagEdges);
   const selectedNodeId = useDagStore((s) => s.selectedNodeId);
   const setSelectedNode = useDagStore((s) => s.setSelectedNode);
+  const liveMode = useDagStore((s) => s.liveMode);
+  const setLiveMode = useDagStore((s) => s.setLiveMode);
 
   const posCache = useRef<Map<string, { x: number; y: number }>>(new Map());
   const posSig = useRef('');
@@ -96,9 +98,42 @@ export function WorkflowGraph() {
   const rfEdges: Edge[] = useMemo(
     () =>
       dagEdges.map((e) => {
+        const isBackEdge = e.id.startsWith('loop-back-');
         const target = dagNodes.find((n) => n.id === e.target);
-        const animated = target?.status === 'running';
-        const stroke = edgeStrokeForTarget(target);
+        const loopNode = isBackEdge ? dagNodes.find((n) => n.id === e.target) : undefined;
+        const loopRunning = loopNode?.status === 'running';
+        const animated = isBackEdge ? loopRunning : target?.status === 'running';
+        const stroke = isBackEdge
+          ? loopRunning
+            ? 'var(--warn)'
+            : edgeStrokeForTarget(loopNode)
+          : edgeStrokeForTarget(target);
+
+        // LOOP back-edge: bezier curve that arcs from sink phase back to loop node.
+        // Uses the dedicated bottom handle on the loop node so the curve visibly
+        // returns upward instead of dangling into empty space.
+        if (isBackEdge) {
+          return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            targetHandle: 'loop-back',
+            type: 'bezier',
+            animated,
+            style: {
+              stroke,
+              strokeWidth: animated ? 2 : 1.5,
+              strokeDasharray: animated ? '8 4' : '4 4',
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: stroke,
+              width: animated ? 16 : 12,
+              height: animated ? 16 : 12,
+            },
+          };
+        }
+
         return {
           id: e.id,
           source: e.source,
@@ -162,6 +197,23 @@ export function WorkflowGraph() {
         maskColor="rgba(13,17,23,0.7)"
         style={{ border: '1px solid var(--border)' }}
       />
+      {/* Live / Stack toggle */}
+      <div className="dag-mode-toggle" title={liveMode ? 'Showing canonical live view — click for iteration stack' : 'Showing per-iteration stack — click for canonical live view'}>
+        <button
+          className={`pagebtn ${liveMode ? 'active' : ''}`}
+          onClick={() => setLiveMode(true)}
+          style={liveMode ? { borderColor: 'var(--ok)', color: 'var(--ok)' } : undefined}
+        >
+          Live
+        </button>
+        <button
+          className={`pagebtn ${!liveMode ? 'active' : ''}`}
+          onClick={() => setLiveMode(false)}
+          style={!liveMode ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+        >
+          Stack
+        </button>
+      </div>
     </ReactFlow>
   );
 }

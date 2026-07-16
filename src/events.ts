@@ -42,6 +42,14 @@ export interface PhaseStartEvent {
   phaseName: string;
   command: string;
   dependsOn?: string[];
+  /**
+   * Zero-based execution order index for this phase within the iteration.
+   * Emitted by the engine from the real execution sequence (array index for
+   * sequential plans, flattened topological-layer index for dependsOn plans).
+   * The dashboard consumes this to chain phases deterministically instead of
+   * guessing order from event arrival / Map insertion order.
+   */
+  order?: number;
 }
 
 export interface PhaseCompleteEvent {

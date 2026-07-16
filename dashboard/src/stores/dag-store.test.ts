@@ -140,3 +140,131 @@ describe('loadCheckpoint (MEDIUM-4 regression)', () => {
     expect(task2Node!.status).toBe('failed');
   });
 });
+
+/**
+ * LIVE-MODE ORDER CHAINING (long-term fix).
+ *
+ * The engine now emits `order` on phase_start. The dashboard must chain
+ * phases by that `order` — deterministically, regardless of event arrival
+ * order or Map insertion order. This replaces the old heuristic that only
+ * worked "by accident" for plans whose events arrived in plan order.
+ */
+describe('live mode order-based phase chaining', () => {
+  const plan = 'cal-continuous';
+
+  function phaseStart(phaseName: string, order: number, ts: string) {
+    return {
+      type: 'phase_start' as const,
+      data: { planName: plan, iteration: 1, phaseName, command: `cmd ${phaseName}`, order },
+      timestamp: ts,
+    };
+  }
+  function iterationStart() {
+    return {
+      type: 'iteration_start' as const,
+      data: { planName: plan, iteration: 1 },
+      timestamp: '2026-07-16T00:00:00.000Z',
+    };
+  }
+  function fsm(from: string, to: string) {
+    return {
+      type: 'fsm_transition' as const,
+      data: { planName: plan, iteration: 1, from, to, event: from.toUpperCase() },
+      timestamp: '2026-07-16T00:00:00.000Z',
+    };
+  }
+
+  beforeEach(() => {
+    useDagStore.setState({
+      dagNodes: [],
+      dagEdges: [],
+      selectedNodeId: null,
+      history: [],
+      replayMode: false,
+      liveMode: true,
+      selectedPlanName: null,
+      replayEvents: [],
+      scrubPos: -1,
+      _liveDagNodes: [],
+      _liveDagEdges: [],
+      _liveHistory: [],
+    });
+  });
+
+  function chainEdges() {
+    const edges = useDagStore.getState().dagEdges;
+    return edges.filter((e) => e.source.startsWith('phase-') && e.target.startsWith('phase-'));
+  }
+
+  it('chains phases in emitted order regardless of arrival order', () => {
+    // Arrival order is intentionally scrambled (verify-build first, then read-state).
+    const events = [
+      iterationStart(),
+      fsm('init', 'run'),
+      phaseStart('verify-build', 3, '2026-07-16T00:00:03.000Z'),
+      phaseStart('scan-reality', 1, '2026-07-16T00:00:01.000Z'),
+      phaseStart('improve', 2, '2026-07-16T00:00:02.000Z'),
+      phaseStart('read-state', 0, '2026-07-16T00:00:00.000Z'),
+      fsm('run', 'verify'),
+    ];
+    useDagStore.getState().processEvents(events);
+
+    const edges = chainEdges();
+    expect(edges).toHaveLength(3); // 4 phases → 3 chain edges
+
+    const expected = [
+      ['phase-cal-continuous-read-state', 'phase-cal-continuous-scan-reality'],
+      ['phase-cal-continuous-scan-reality', 'phase-cal-continuous-improve'],
+      ['phase-cal-continuous-improve', 'phase-cal-continuous-verify-build'],
+    ];
+    for (const [src, tgt] of expected) {
+      const edge = edges.find((e) => e.source === src && e.target === tgt);
+      expect(edge, `expected chain edge ${src} -> ${tgt}`).toBeDefined();
+    }
+  });
+
+  it('loop badge reflects incremented run count after N iteration_start events', () => {
+    const events = [
+      iterationStart(),
+      iterationStart(),
+      iterationStart(),
+      fsm('init', 'run'),
+      phaseStart('read-state', 0, '2026-07-16T00:00:00.000Z'),
+      phaseStart('improve', 1, '2026-07-16T00:00:01.000Z'),
+      fsm('run', 'verify'),
+    ];
+    useDagStore.getState().processEvents(events);
+
+    const loopNode = useDagStore.getState().dagNodes.find((n) => n.kind === 'loop');
+    expect(loopNode).toBeDefined();
+    expect(loopNode!.iteration).toBe(3); // 3 iteration_start → x3
+  });
+
+  it('produces finite positions (no NaN/Infinity) after many iterations', () => {
+    // Simulate 50 iterations of a 2-phase plan, feeding events incrementally
+    // like the live WS stream would.
+    const store = useDagStore.getState();
+    for (let iter = 1; iter <= 50; iter++) {
+      store.processEvents([
+        { type: 'iteration_start', data: { planName: plan, iteration: iter }, timestamp: new Date(iter * 1000).toISOString() },
+        { type: 'fsm_transition', data: { planName: plan, iteration: iter, from: 'init', to: 'run', event: 'RUN' }, timestamp: new Date(iter * 1000).toISOString() },
+        phaseStart('read-state', 0, new Date(iter * 1000 + 1).toISOString()),
+        phaseStart('improve', 1, new Date(iter * 1000 + 2).toISOString()),
+        { type: 'fsm_transition', data: { planName: plan, iteration: iter, from: 'run', to: 'verify', event: 'VERIFY' }, timestamp: new Date(iter * 1000 + 3).toISOString() },
+      ]);
+    }
+
+    const phases = useDagStore.getState().dagNodes.filter((n) => n.kind === 'phase');
+    for (const p of phases) {
+      expect(p.order).toBeDefined();
+      expect(Number.isFinite(p.order as number)).toBe(true);
+    }
+    // Exactly 2 canonical phase nodes (live mode collapses iterations).
+    expect(phases).toHaveLength(2);
+
+    const edges = chainEdges();
+    expect(edges).toHaveLength(1); // read-state → improve
+    expect(edges[0].source).toBe('phase-cal-continuous-read-state');
+    expect(edges[0].target).toBe('phase-cal-continuous-improve');
+  });
+});
