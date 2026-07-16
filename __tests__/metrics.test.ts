@@ -11,7 +11,7 @@ function seedTask(base: string, id: string, status: string, overrides: Record<st
   const dir = join(base, "_loop-history", id);
   mkdirSync(dir, { recursive: true });
   const entry = {
-    task: { id, command: "test", status, createdAt: new Date().toISOString(), completedAt: new Date().toISOString(), ...overrides },
+    task: { id, command: "test", lifecycle: status, createdAt: new Date().toISOString(), completedAt: new Date().toISOString(), ...overrides },
     phases: [],
   };
   writeFileSync(join(dir, "task.json"), JSON.stringify(entry, null, 2));
@@ -29,7 +29,7 @@ describe("GET /api/metrics", () => {
       const durations = [100, 200, 300, 400, 500];
       for (let i = 0; i < 5; i++) {
         seedTask(tempDir, `task-00${i + 1}`, "completed", {
-          durationMs: durations[i],
+          result: { durationMs: durations[i] },
           completedAt: now,
         });
       }
@@ -104,7 +104,7 @@ describe("GET /api/metrics", () => {
 
     try {
       for (let i = 0; i < 5; i++) {
-        seedTask(tempDir, `task-00${i + 1}`, "completed", { durationMs: 100, completedAt: now });
+        seedTask(tempDir, `task-00${i + 1}`, "completed", { result: { durationMs: 100 }, completedAt: now });
       }
       seedTask(tempDir, "task-006", "failed", { completedAt: now });
       seedTask(tempDir, "task-007", "failed", { completedAt: now });

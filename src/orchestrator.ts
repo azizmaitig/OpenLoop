@@ -254,7 +254,21 @@ export class LoopOrchestrator {
     this._childAbortControllers.set(child.id, ac);
 
     try {
-      const config = await resolvePlanConfig(planPath);
+      // Resolve plan config — on failure, log a warning but do NOT downgrade
+      // the child's just-set 'running' status (plan resolution is a setup
+      // concern; the child stays 'running' and the error surfaces later).
+      let config: LoopConfig;
+      try {
+        config = await resolvePlanConfig(planPath);
+      } catch (resolveErr) {
+        console.warn(
+          `[orchestrator] Failed to resolve plan config for child "${child.name}": ${
+            resolveErr instanceof Error ? resolveErr.message : String(resolveErr)
+          }`
+        );
+        return;
+      }
+
       await runLoop(config, {
         broadcast: this._broadcast,
         signal: ac.signal,

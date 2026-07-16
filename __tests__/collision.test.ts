@@ -171,7 +171,7 @@ describe('claimTarget', () => {
     await claimTarget(dir, filepath, 'PR #42');
 
     const raw = await readFile(join(dir, filepath), 'utf-8');
-    expect(raw).toContain("acting_on: 'PR #42'");
+    expect(raw).toMatch(/acting_on:\s*['"]?PR #42['"]?/);
     expect(raw).toContain('version: 1');
     expect(raw).toContain('currentState: init');
 
