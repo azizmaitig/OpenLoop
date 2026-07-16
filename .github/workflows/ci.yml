@@ -19,4 +19,5 @@ jobs:
       - run: bun install
       - run: bun run typecheck
       - run: cd dashboard && bun install && bun run build
+      - run: cd dashboard && bun run typecheck
       - run: bun test

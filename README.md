@@ -3,7 +3,7 @@
 [![version](https://img.shields.io/badge/version-8.0.0-blue)](#agent-loop)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20TypeScript-000000)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-438%20passing-brightgreen)](__tests__)
+[![tests](https://img.shields.io/badge/tests-557%20passing-brightgreen)](__tests__)
 [![platform](https://img.shields.io/badge/platform-cross--platform-0098FF)](https://bun.sh)
 
 A resilient, observable **loop orchestrator for AI agents** — written in Bun + TypeScript, with **no build step**. `agent-loop` turns fragile one-shot agent scripts into dependable, long-running automation: structured plans run as repeatable loops through a strict 4-state machine, with crash recovery, budget guards, LLM/MCP tool-use, scheduled triggers, a live dashboard, and self-healing via healCommand re-run on verify failure.
@@ -258,7 +258,7 @@ agent-loop/
 ├── docs/
 │   ├── adr/                # Architecture Decision Records (0001, 0002, 0003, 0004, 0008–0013)
 │   └── prd-v9-feedback-controller.md
-├── __tests__/              # 438 tests across 33 files
+├── __tests__/              # 557 tests across 54 files
 ├── PLAN-WRITING-GUIDE.md   # how to author a correct .plan.yaml
 ├── AGENTS.md               # loop-safety rules (read before any loop work)
 └── package.json
@@ -282,7 +282,7 @@ agent-loop/
 ## Development & testing
 
 ```bash
-bun test                       # full suite — 438 tests across 33 files
+bun test                       # full suite — 557 tests across 54 files
 bun test __tests__/task-processor.test.ts   # a single file
 bun run prototypes/_prototype-feedback-controller.ts  # v9 feedback-controller prototype
 ```

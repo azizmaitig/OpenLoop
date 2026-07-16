@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import UplotReact from 'uplot-react';
 import { useTimeSeries } from '../../hooks/useTimeSeries';
+import type { Metric } from '../../lib/constants';
 import type { TimeSeriesPoint } from '../../lib/types';
 import { Card, Skeleton } from '../ui';
 import { DEFAULT_WINDOW } from '../../lib/constants';
@@ -75,7 +76,7 @@ export function UPlotChart({
   );
 }
 
-function MetricChart({ metric, label, window }: { metric: string; label: string; window: string }) {
+function MetricChart({ metric, label, window }: { metric: Metric; label: string; window: string }) {
   const { data, isPending } = useTimeSeries(metric, window);
 
   return (

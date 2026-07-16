@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import { buildRfNodes } from './WorkflowGraph';
 import { NODE_W } from '../../lib/dag-layout';
 import type { DagNodeData } from '../../lib/types';
