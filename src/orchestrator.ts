@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ChildLoopDef, ChildLoopState, ChildLoopSummary, LoopsConfig, StartChildResult, StopChildResult, TriggerDef } from './types.js';
+import type { ChildLoopDef, ChildLoopState, ChildLoopSummary, LoopConfig, LoopsConfig, StartChildResult, StopChildResult, TriggerDef } from './types.js';
 import { CronTrigger, FileWatchTrigger, TriggerManager } from './triggers.js';
 import { TaskQueue } from './task-queue.js';
 import { parseYaml } from './yaml.js';
