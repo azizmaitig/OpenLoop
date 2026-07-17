@@ -13,7 +13,6 @@ A resilient, observable **loop orchestrator for AI agents** — written in Bun +
 ---
 
 ## Why agent-loop
-![Uploading Enregistrement 2026-07-17 113347.gif…]()
 
 Agents don't run once — they **loop**. But naive loops are brittle: a crash loses progress, a stuck run never terminates, a bad fix corrupts state, and you can't tell what's happening right now.
 
