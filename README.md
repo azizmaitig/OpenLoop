@@ -26,6 +26,12 @@ Agents don't run once — they **loop**. But naive loops are brittle: a crash lo
 
 ---
 
+## Demo
+
+![agent-loop in action](Enregistrement%202026-07-17%20113347.gif)
+
+---
+
 ## Features
 
 The architecture is **loops, by design** — they stack and survive, rather than a fragile `while (true)`.
