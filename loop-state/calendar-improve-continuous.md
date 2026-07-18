@@ -1,11 +1,11 @@
 # calendar-improve-continuous state
 
-Updated: 2026-07-18T06:26:53Z
+Updated: 2026-07-18T06:36:05Z
 Branch: main
 
 ## Phase results
 
-- (could not read phase status)
+- (could not read phase status: Le terme « ConvertFrom-Yaml » n'est pas reconnu comme nom d'applet de commande, fonction, fichier de script ou programme exécutable. Vérifiez l'orthographe du nom, ou si un chemin d'accès existe, vérifiez que le chemin d'accès est correct et réessayez.)
 
 ## STATE.md
 
