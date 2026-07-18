@@ -1,15 +1,10 @@
 # calendar-improve-continuous state
 
-Updated: 2026-07-18T06:44:07Z
+Updated: 2026-07-18T06:55:42Z
 Branch: main
 
 ## Phase results
 
-- read-state: pass
-- scan-reality: pass
-- improve: pass
-- state-sync: pass
-- verify-build: pass
 
 ## STATE.md
 
