@@ -6,8 +6,9 @@
 #
 # Runs as its own daemon process (port 3001, cron) - SEPARATE from L2 (port 3002).
 # Two daemons = isolated module globals in agent-loop v8 (ADR-0001 Amendment).
-# Daemon autonomy (cron unref + space-path spawn) is a SEPARATE tracked bug, so
-# this loop runs MANUAL until that is fixed; the plan is the documented wiring.
+# Daemon autonomy (cron unref + space-path spawn) is FIXED — this loop now runs
+# AUTONOMOUSLY: cron fires (timer no longer unref'd) and space-paths survive the
+# task spawn. Launch as its own daemon process (see _loops.yaml spec-factory-l1).
 #
 # Space-in-path: commands quote the specs workspace literally. The engine writes
 # each command to a temp .cmd so quotes/spaces survive; the launch wrapper
