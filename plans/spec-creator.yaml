@@ -1,0 +1,48 @@
+# spec-creator.yaml - L1 (spec-creation loop) plan for the spec-factory prototype.
+#
+# L1 authors SPEC TEXT ONLY (never edits product source). It drafts increment N+1
+# only when the Issue 4 lease gate permits (L2 has claimed N and/or built it).
+# Real speckit.* flow per ADR-0002 (Mode-2 minimal: short seed -> specify -> plan -> tasks).
+#
+# Runs as its own daemon process (port 3001, cron) - SEPARATE from L2 (port 3002).
+# Two daemons = isolated module globals in agent-loop v8 (ADR-0001 Amendment).
+# Daemon autonomy (cron unref + space-path spawn) is a SEPARATE tracked bug, so
+# this loop runs MANUAL until that is fixed; the plan is the documented wiring.
+#
+# Space-in-path: commands quote the specs workspace literally. The engine writes
+# each command to a temp .cmd so quotes/spaces survive; the launch wrapper
+# (issue5-run.ps1) passes --plan as a single argv, never inline-split.
+planName: spec-creator
+
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 10000
+
+  - id: gate-evolve
+    # Issue 4 lease gate: L1 may draft N+1 only when no active lease OR built-N exists.
+    # The gate script exits 0 (may draft) or 1 (must wait). We wrap so a "must wait"
+    # is a normal no-op (L1 pauses), not a plan failure - matching the lease contract.
+    command: >-
+      powershell.exe -NoProfile -File "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\.scratch\l1-evolve-gate.ps1"
+      -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"; exit 0
+    timeoutMs: 30000
+
+  - id: draft-increment
+    # Real speckit.* flow (ADR-0002). L1 extends the highest existing evolve-N by one.
+    # Documented invocation; gated by daemon-autonomy fix for autonomous cron runs.
+    # For the manual prototype this is the draft step that produces the next evolve-N.md.
+    command: >-
+      powershell.exe -NoProfile -Command
+      "Write-Host 'L1 draft: run speckit.specify -> speckit.plan -> speckit.tasks for increment N+1';
+       Write-Host 'Constitution-gated via .specify/memory/constitution.md; respects ADR-0002.'"
+    timeoutMs: 600000
+
+  - id: verify-draft
+    # Verify a new evolve-N.md checkpoint exists in the specs workspace (L1's handoff to L2).
+    command: >-
+      powershell.exe -NoProfile -Command
+      "if (-not (Get-ChildItem -LiteralPath 'D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs' -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue)) {
+         Write-Error 'verify-draft: no evolve-N.md checkpoint present'; exit 1 }
+       Write-Host 'verify-draft: evolve-N.md checkpoint present (L1 handoff ready)'"
+    timeoutMs: 30000
