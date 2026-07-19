@@ -64,12 +64,20 @@ function Read-Lease {
     if (-not (Test-Path -LiteralPath $lease)) { throw 'LEASE missing: current-increment.txt not claimed' }
     $raw = (Get-Content -LiteralPath $lease -Raw).Trim()
     $n   = Parse-N $raw
-    # The increment DIRECTORY name (e.g. "003-watchdir-trigger") is the canonical
-    # source of truth in evolve-N.md, not the lease. Resolve it from Discover-N so
-    # stages that copy/verify the increment dir use the real directory, independent
-    # of the lease's rich shape.
-    $d = Discover-N
-    return @{ Raw = $raw; Increment = $d.Increment; N = $n }
+    return @{ Raw = $raw; N = $n }
+}
+
+# Resolve the increment directory name for a given N from the evolve-N.md body.
+# Does NOT depend on Read-Lease or Discover-N — pure lookup by N.
+# Returns e.g. "003-watchdir-trigger".
+function Resolve-IncrementDir ([string]$N) {
+    $ev = Get-ChildItem -LiteralPath $Specs -File -Filter "evolve-$N*.md" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $ev) { throw "No evolve-$N.md found to resolve increment directory" }
+    $txt = Get-Content -LiteralPath $ev.FullName -Raw
+    $m = [regex]::Match($txt, 'specs/(\d{3}-[A-Za-z0-9-]+)/')
+    if (-not $m.Success) { throw "evolve-$N.md does not reference specs/<increment>" }
+    return $m.Groups[1].Value
 }
 
 switch ($Stage) {
@@ -112,7 +120,7 @@ switch ($Stage) {
     }
 
     'ensure-worktree' {
-        $l = if ($N) { @{ N = $N; Increment = "$N" } } else { Read-Lease }
+        $l = if ($N) { @{ N = $N } } else { Read-Lease }
         $wt = Join-Path $ProtoRoot "wt-$($l.N)"
         if (-not (Test-Path -LiteralPath $wt)) {
             $oldPref = $ErrorActionPreference
@@ -131,13 +139,14 @@ switch ($Stage) {
         $l = if ($N) { @{ N = $N } } else { Read-Lease }
         $wt = Join-Path $ProtoRoot "wt-$($l.N)"
         Write-Host "IMPLEMENT: building increment $($l.N) in worktree $wt"
-        $incDir = Join-Path $Specs "$($l.Increment)"
+        $incName = Resolve-IncrementDir $l.N
+        $incDir = Join-Path $Specs $incName
         if (Test-Path -LiteralPath $incDir) {
             Copy-Item -LiteralPath $incDir -Destination $wt -Recurse -Force
-            Write-Host "  copied increment $($l.Increment) to worktree"
+            Write-Host "  copied increment $incName to worktree"
         }
         $marker = Join-Path $wt "IMPLEMENTED.md"
-        Set-Content -LiteralPath $marker -Value "# Implemented`n`nIncrement $($l.Increment) was built in this worktree (wt-$($l.N))." -NoNewline
+        Set-Content -LiteralPath $marker -Value "# Implemented`n`nIncrement $incName was built in this worktree (wt-$($l.N))." -NoNewline
         Write-Host "IMPLEMENT done for N=$($l.N)"
     }
 
@@ -148,9 +157,10 @@ switch ($Stage) {
         $marker = Join-Path $wt "IMPLEMENTED.md"
         if (-not (Test-Path -LiteralPath $marker)) { throw "verify: IMPLEMENTED.md not found in worktree $wt" }
         $l2 = Read-Lease
-        $incDir = Join-Path $Specs "$($l2.Increment)"
+        $incName = Resolve-IncrementDir $l2.N
+        $incDir = Join-Path $Specs $incName
         $convergeMarker = Join-Path $incDir 'converge-passed.md'
-        Set-Content -LiteralPath $convergeMarker -Value "# converge gate passed`n`nIncrement $($l2.Increment) converged." -NoNewline
+        Set-Content -LiteralPath $convergeMarker -Value "# converge gate passed`n`nIncrement $incName converged." -NoNewline
         Write-Host "VERIFY passed for N=$($l2.N)"
     }
 
@@ -167,7 +177,8 @@ switch ($Stage) {
         $stamp = Join-Path $Specs "built-$($l.N)"
         if (-not (Test-Path -LiteralPath $lease)) { throw 'verify-done: lease missing' }
         if (-not (Test-Path -LiteralPath $stamp)) { throw "verify-done: built-$($l.N) missing" }
-        $incDir = Join-Path $Specs "$($l.Increment)"
+        $incName = Resolve-IncrementDir $l.N
+        $incDir = Join-Path $Specs $incName
         $marker = Join-Path $incDir 'converge-passed.md'
         if (-not (Test-Path -LiteralPath $marker)) { throw "verify-done: converge-passed.md missing for $($l.N)" }
         Write-Host "VERIFY-DONE: lease + stamp + converge gate all present for N=$($l.N)"
