@@ -71,11 +71,13 @@ export async function executeTask(task: Task, ctx: TaskContext): Promise<void> {
     return;
   }
 
-  // Special spawn paths: opencode (direct binary, no shell) and .ps1 (powershell)
+  // Special spawn paths: opencode (direct binary, no shell) and .ps1 (powershell).
+  // Tokenize respecting double-quotes so space-containing paths
+  // (e.g. `D:\some dir\script.ps1`) stay intact as a single argv element
+  // instead of being fragmented by a naive whitespace split (Bug 2).
   const isOpencode = task.command.startsWith('opencode');
-  const parts = task.command.split(/\s+/).filter(Boolean);
+  const parts = tokenizeCommand(task.command);
   const isPs1 = parts.length > 0 && parts[0].toLowerCase().endsWith('.ps1');
-  console.error('[SISYPHUS-DEBUG] isOpencode:', isOpencode, 'isPs1:', isPs1, 'parts:', JSON.stringify(parts));
   const timeoutMs = isOpencode ? (task.timeoutMs ?? 300000) : (task.timeoutMs ?? 60000);
 
   try {
@@ -196,4 +198,47 @@ export async function processQueue(ctx: TaskContext): Promise<number> {
   }
 
   return processed;
+}
+
+/**
+ * Split a shell command string into argv tokens, respecting double-quoted
+ * segments so space-containing paths stay intact.
+ *
+ * `"C:\some dir\script.ps1" arg1 "value two"` →
+ *   ['C:\some dir\script.ps1', 'arg1', 'value two']
+ *
+ * Outside quotes, whitespace separates tokens. Inside quotes, whitespace is
+ * literal. A backslash before a quote (\\") escapes it. Wrapping quotes are
+ * stripped; unterminated quotes consume the rest of the string.
+ */
+function tokenizeCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let i = 0;
+  while (i < command.length) {
+    const ch = command[i];
+    if (ch === '\\' && i + 1 < command.length && command[i + 1] === '"') {
+      current += '"';
+      i += 2;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      i++;
+      continue;
+    }
+    if (!inQuotes && /\s/.test(ch)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+      i++;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+  if (current.length > 0) tokens.push(current);
+  return tokens;
 }
