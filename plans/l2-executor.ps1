@@ -53,6 +53,31 @@ switch ($Stage) {
     'discover-claim' {
         $d = Discover-N
         $lease = Join-Path $Specs 'current-increment.txt'
+
+        # ── COLLISION GATE (Issue 4) ──────────────────────────────────────────
+        # If a lease already exists AND it names the SAME increment N that this
+        # scan wants to claim, two L2 scans are racing the same number. The
+        # second scan must ESCALATE (human gate): write collision-<N>.alert,
+        # exit non-zero, and must NOT overwrite the existing lease.
+        # If the existing lease is for a LOWER increment, this is a new
+        # increment (normal operation) — overwrite is allowed.
+        if (Test-Path -LiteralPath $lease) {
+            $existing = (Get-Content -LiteralPath $lease -Raw).Trim()
+            $existingN = ($existing -split '-')[0]
+            # Same N: two scans racing the same increment -> escalate (human gate).
+            # Higher N: a newer increment is already claimed; downgrading the lease
+            # backward would let L1 draft a stale N. Treat as collision too.
+            if (($existingN -eq $d.N) -or ($existingN -gt $d.N)) {
+                $alert = Join-Path $Specs "collision-$($d.N).alert"
+                $ts = Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S'
+                $msg = "COLLISION at N=$($d.N) - existing lease '$existing' already claims N>=$($d.N). Second claim escalated (human gate). Existing lease NOT overwritten at $ts."
+                Set-Content -LiteralPath $alert -Value $msg -NoNewline
+                Write-Host "COLLISION: lease for N=$($d.N) already claimed by another L2 scan (existing '$existing'). Escalating (human gate)."
+                exit 1
+            }
+            # existingN < d.N: normal new-increment claim, fall through to overwrite.
+        }
+
         Set-Content -LiteralPath $lease -Value $d.Increment -NoNewline
         Write-Host "CLAIMED increment $($d.Increment) (N=$($d.N))"
     }
