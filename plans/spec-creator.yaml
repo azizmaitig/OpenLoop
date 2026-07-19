@@ -34,28 +34,52 @@ tasks:
       -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
     timeoutMs: 30000
 
-  - id: draft-increment
-    # Real speckit.* flow (ADR-0002). L1 extends the highest existing evolve-N by one.
-    # Documented invocation; gated by daemon-autonomy fix for autonomous cron runs.
-    # For the manual prototype this is the draft step that produces the next evolve-N.md.
-    # PACING CONVENTION (Issue 6): before drafting, L1 MUST confirm no unconsumed
-    # evolve-* already exists (the gate-evolve task above already enforces this).
-    # Write exactly ONE evolve-N per cron cycle. Do NOT draft N+1 while an evolve-N
-    # without a matching built-N is still unconsumed.
+  - id: read-inbox
+    # ADR-0018: idea intake = filesystem inbox. Read the TOP idea line from
+    # specs/ideas/inbox.md. If the inbox is empty (or missing), this task MUST exit 0
+    # and emit no IDEA env value -> draft-increment idles this cycle (no evolve written,
+    # no false failure). If a line exists, peel it off the inbox and write it to a temp
+    # file the next task can consume. Space-in-path safe (LiteralPath / Join-Path).
     command: >-
-      powershell.exe -NoProfile -Command
-      "Write-Host 'L1 draft: run speckit.specify -> speckit.plan -> speckit.tasks for increment N+1';
-       Write-Host 'Constitution-gated via .specify/memory/constitution.md; respects ADR-0002.'"
+      powershell.exe -NoProfile -File
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\plans\l1-read-inbox.ps1"
+      -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
+      -Out "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs\ideas\.next-idea.txt"
+    timeoutMs: 30000
+
+  - id: draft-increment
+    # ADR-0018: real speckit.* flow (ADR-0002 Mode-2 minimal). L1 extends the highest
+    # existing evolve-N by one FROM a human-supplied one-line idea (never invents topics).
+    # Runs the identical manual flow as the repo demo - three separate `opencode run`
+    # calls (/speckit.specify <idea>, /speckit.plan, /speckit.tasks) from the spec-factory
+    # workspace CWD (no --dir per PLAN-WRITING-GUIDE P2: chokes on space paths).
+    # Constitution is respected automatically (.specify/memory/constitution.md).
+    #
+    # PASSES if and only if a .next-idea.txt exists (read-inbox produced one). If it is
+    # absent the script exits 0 and writes nothing -> L1 idles this cycle (pacing OK).
+    # A real speckit failure must surface as a non-zero exit so the task fails honestly.
+    #
+    # Pacing (Issue 6): gate-evolve already ran and passed; read-inbox handed us exactly
+    # ONE idea; this task writes exactly ONE evolve-N. Do NOT loop over multiple ideas.
+    command: >-
+      powershell.exe -NoProfile -File
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\plans\l1-draft-increment.ps1"
+      -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
+      -IdeaFile "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs\ideas\.next-idea.txt"
+      -Workspace "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory"
     timeoutMs: 600000
 
   - id: verify-draft
-    # Verify a new evolve-N.md checkpoint exists in the specs workspace (L1's handoff to L2).
-    # Pacing invariant: at most ONE unconsumed evolve-* may exist after this step.
+    # Verify L1's handoff invariant WITHOUT penalizing idle cycles (ADR-0018).
+    # draft-increment idles (writes nothing) when the inbox is empty or the gate blocked.
+    # So "no evolve-N at all" is a VALID idle result here -> exit 0, not a failure.
+    # The check only enforces the Issue 6 pacing invariant: if any evolve-* exist,
+    # at most ONE may be unconsumed (no matching built-N). Pacing violation -> exit 1.
     command: >-
       powershell.exe -NoProfile -Command
       "$specs='D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs';
        $ev = @(Get-ChildItem -LiteralPath $specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue);
-       if ($ev.Count -eq 0) { Write-Error 'verify-draft: no evolve-N.md checkpoint present'; exit 1 };
+       if ($ev.Count -eq 0) { Write-Host 'verify-draft: idle cycle (no evolve-N) - pacing OK, nothing to verify'; exit 0 };
        $unconsumed = 0;
        foreach ($f in $ev) { $m = [regex]::Match($f.Name,'^evolve-(\d{3})'); if ($m.Success -and -not (Test-Path -LiteralPath (Join-Path $specs ('built-'+$m.Groups[1].Value)))) { $unconsumed++ } };
        if ($unconsumed -ge 2) { Write-Error ('verify-draft: pacing violation - '+$unconsumed+' unconsumed evolve-* coexist'); exit 1 };
