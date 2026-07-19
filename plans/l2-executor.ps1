@@ -29,6 +29,24 @@ $ErrorActionPreference = 'Stop'
 $Specs    = Resolve-Path -LiteralPath $Specs
 $ProtoRoot = Resolve-Path -LiteralPath $ProtoRoot
 
+# Parse the increment identifier N from a lease/increment token.
+#
+# Two shapes are accepted (Issue 6 upgrade + backward-compatible legacy):
+#   RICH : "003|D:\...spec-factory\specs\wt-003|role=L2-executor|ttl=3600"
+#          -> N is the FIRST '|'-delimited field.
+#   LEGACY: "003-watchdir-trigger"
+#          -> N is the leading numeric segment before the first '-'.
+# The '|' form is authoritative for Issue 6; the legacy branch only exists so
+# a pre-Issue-6 lease is not mis-parsed (e.g. "003|wt" must NOT collapse to a
+# '-' split that yields garbage).
+function Parse-N ([string] $Token) {
+    $t = $Token.Trim()
+    if ($t -match '\|') {
+        return ($t -split '\|')[0]
+    }
+    return ($t -split '-')[0]
+}
+
 function Discover-N {
     $ev = Get-ChildItem -LiteralPath $Specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue |
         Sort-Object Name -Descending | Select-Object -First 1
@@ -37,16 +55,21 @@ function Discover-N {
     $m = [regex]::Match($txt, 'specs/(\d{3}-[A-Za-z0-9-]+)/')
     if (-not $m.Success) { throw "evolve file $($ev.Name) does not reference specs/<increment>" }
     $inc = $m.Groups[1].Value
-    $n   = ($inc -split '-')[0]
+    $n   = Parse-N $inc
     return @{ Increment = $inc; N = $n }
 }
 
 function Read-Lease {
     $lease = Join-Path $Specs 'current-increment.txt'
     if (-not (Test-Path -LiteralPath $lease)) { throw 'LEASE missing: current-increment.txt not claimed' }
-    $inc = (Get-Content -LiteralPath $lease -Raw).Trim()
-    $n   = ($inc -split '-')[0]
-    return @{ Increment = $inc; N = $n }
+    $raw = (Get-Content -LiteralPath $lease -Raw).Trim()
+    $n   = Parse-N $raw
+    # The increment DIRECTORY name (e.g. "003-watchdir-trigger") is the canonical
+    # source of truth in evolve-N.md, not the lease. Resolve it from Discover-N so
+    # stages that copy/verify the increment dir use the real directory, independent
+    # of the lease's rich shape.
+    $d = Discover-N
+    return @{ Raw = $raw; Increment = $d.Increment; N = $n }
 }
 
 switch ($Stage) {
@@ -60,10 +83,12 @@ switch ($Stage) {
         # second scan must ESCALATE (human gate): write collision-<N>.alert,
         # exit non-zero, and must NOT overwrite the existing lease.
         # If the existing lease is for a LOWER increment, this is a new
-        # increment (normal operation) — overwrite is allowed.
+        # increment (normal operation) — overwrite is allowed. N is parsed via
+        # Parse-N so the rich "N|<path>|role=|ttl=" lease shape is compared by
+        # the numeric increment, not the raw whole token.
         if (Test-Path -LiteralPath $lease) {
             $existing = (Get-Content -LiteralPath $lease -Raw).Trim()
-            $existingN = ($existing -split '-')[0]
+            $existingN = Parse-N $existing
             # Same N: two scans racing the same increment -> escalate (human gate).
             # Higher N: a newer increment is already claimed; downgrading the lease
             # backward would let L1 draft a stale N. Treat as collision too.
@@ -78,8 +103,12 @@ switch ($Stage) {
             # existingN < d.N: normal new-increment claim, fall through to overwrite.
         }
 
-        Set-Content -LiteralPath $lease -Value $d.Increment -NoNewline
-        Write-Host "CLAIMED increment $($d.Increment) (N=$($d.N))"
+        # RICH LEASE FORMAT (Issue 6): N|<worktree-path>|role=L2-executor|ttl=3600
+        # Only ONE L2 daemon exists, so a plain claim is sufficient (TTL optional).
+        $wtPath = Join-Path $ProtoRoot "wt-$($d.N)"
+        $leaseVal = "$($d.N)|$wtPath|role=L2-executor|ttl=3600"
+        Set-Content -LiteralPath $lease -Value $leaseVal -NoNewline
+        Write-Host "CLAIMED increment $($d.Increment) (N=$($d.N)) -> lease: $leaseVal"
     }
 
     'ensure-worktree' {

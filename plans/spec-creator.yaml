@@ -20,18 +20,28 @@ tasks:
     timeoutMs: 10000
 
   - id: gate-evolve
-    # Issue 4 lease gate: L1 may draft N+1 only when no active lease OR built-N exists.
-    # The gate script exits 0 (may draft) or 1 (must wait). We wrap so a "must wait"
-    # is a normal no-op (L1 pauses), not a plan failure - matching the lease contract.
+    # Issue 4 + Issue 6 lease/pacing gate: L1 may draft N+1 only when:
+    #   - no unconsumed evolve-* exists (pacing: never two coexist), AND
+    #   - no active lease, OR built-N exists for the current N.
+    # The gate script exits 0 (may draft) or 1 (must wait). When it exits 1,
+    # the plan task FAILS. The plan executor treats this as "L1 pauses" (no draft
+    # until next cron tick). DO NOT add `; exit 0` — that would neutralize the
+    # gate and let L1 draft unconditionally, violating the Issue 6 pacing contract.
+    # Issue 6 pacing: L1 writes exactly ONE evolve-N per cron cycle, only after
+    # built-(N-1) exists. The gate enforces "no two unconsumed evolve-*".
     command: >-
       powershell.exe -NoProfile -File "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\.scratch\l1-evolve-gate.ps1"
-      -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"; exit 0
+      -Specs "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
     timeoutMs: 30000
 
   - id: draft-increment
     # Real speckit.* flow (ADR-0002). L1 extends the highest existing evolve-N by one.
     # Documented invocation; gated by daemon-autonomy fix for autonomous cron runs.
     # For the manual prototype this is the draft step that produces the next evolve-N.md.
+    # PACING CONVENTION (Issue 6): before drafting, L1 MUST confirm no unconsumed
+    # evolve-* already exists (the gate-evolve task above already enforces this).
+    # Write exactly ONE evolve-N per cron cycle. Do NOT draft N+1 while an evolve-N
+    # without a matching built-N is still unconsumed.
     command: >-
       powershell.exe -NoProfile -Command
       "Write-Host 'L1 draft: run speckit.specify -> speckit.plan -> speckit.tasks for increment N+1';
@@ -40,9 +50,14 @@ tasks:
 
   - id: verify-draft
     # Verify a new evolve-N.md checkpoint exists in the specs workspace (L1's handoff to L2).
+    # Pacing invariant: at most ONE unconsumed evolve-* may exist after this step.
     command: >-
       powershell.exe -NoProfile -Command
-      "if (-not (Get-ChildItem -LiteralPath 'D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs' -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue)) {
-         Write-Error 'verify-draft: no evolve-N.md checkpoint present'; exit 1 }
-       Write-Host 'verify-draft: evolve-N.md checkpoint present (L1 handoff ready)'"
+      "$specs='D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs';
+       $ev = @(Get-ChildItem -LiteralPath $specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue);
+       if ($ev.Count -eq 0) { Write-Error 'verify-draft: no evolve-N.md checkpoint present'; exit 1 };
+       $unconsumed = 0;
+       foreach ($f in $ev) { $m = [regex]::Match($f.Name,'^evolve-(\d{3})'); if ($m.Success -and -not (Test-Path -LiteralPath (Join-Path $specs ('built-'+$m.Groups[1].Value)))) { $unconsumed++ } };
+       if ($unconsumed -ge 2) { Write-Error ('verify-draft: pacing violation - '+$unconsumed+' unconsumed evolve-* coexist'); exit 1 };
+       Write-Host 'verify-draft: evolve-N.md checkpoint present (L1 handoff ready, pacing OK)'"
     timeoutMs: 30000
