@@ -136,7 +136,9 @@ export class CronTrigger {
         }
       }
     }, checkIntervalMs);
-    this.intervalId.unref();
+    // Keep the timer ref'd: if it were unref()'d the process could exit while
+    // this is the only pending handle, silently disabling scheduled triggers.
+    // The timer must hold the event loop open for the daemon to fire on schedule.
   }
 
   stop(): void {
