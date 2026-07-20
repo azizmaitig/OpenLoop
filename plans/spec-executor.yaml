@@ -1,4 +1,4 @@
-﻿planName: spec-executor
+planName: spec-executor
 tasks:
   - id: read-state
     command: >-

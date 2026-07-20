@@ -1,70 +1,21 @@
-﻿# spec-evolve.yaml — L3 evolve pass (ADR-0019 §Decision 5 / Issue 4, fixed Issue 5 dry-run).
-#
-# The SLOW loop that tightens the fast loops (L1 drafts, L2 builds). It reads the
-# shared `loop-run-log.md` (written by l1-draft-increment.ps1 / l2-executor.ps1),
-# and PROPOSES edits to the loops' own intake/intake-layer artifacts — it never
-# edits `agent-loop/src/` (locked engine) or `spec-factory/` command content
-# (locked reference deliverables). A human reviews `spec-evolve-proposals.md`
-# and `git apply`s the emitted patch (Scope = B, human gate = A, ADR-0019 §1/§5).
-#
-# Run as its OWN daemon (own port 3003) on a slow cadence, e.g.:
-#   bun run loop.ts daemon --port 3003 --plan "plans/spec-evolve.yaml" --cron "17 3 * * *"
-# (off L1's */15 grid). Two-daemon isolation preserved per ADR-0001 Amendment.
-#
-# CWD note: the issue text said "CWD = spec-factory", but spec-factory/ does not
-# exist in this repo and the evolve pass needs NO spec-factory workspace — it only
-# reads loop-run-log.md (loop root) and writes proposals. Per PLAN-WRITING-GUIDE
-# §7B.0 P2 we OMIT --dir (space-path fails) and run `opencode run` from the loop
-# root where .opencode/ resolves, instructing the agent to write artifacts by
-# ABSOLUTE path. If a real spec-factory/ workspace is later added, swap the CWD.
-#
-# No -m flag (uses opencode default — bare -m crashes, see guide §7B.0 P1).
-#
-# Trigger/evolve steps are REAL .ps1 files (not inline -Command) so $PSScriptRoot
-# resolves correctly — inline -Command leaves $PSScriptRoot empty and Join-Path
-# throws (caught by the Issue 5 dry run).
 planName: spec-evolve
 tasks:
-  # ── 1. read-state (constitution gate: read-state-first) ──
   - id: read-state
     command: type STATE.md
     timeoutMs: 5000
-
-  # ── 2. check-trigger — cheap deterministic combo-trigger (Issue 3), no LLM ──
-  # l3-check-trigger.ps1 wraps l3-should-evolve.ps1. On "IDLE" exits 0, writes NO
-  # flag → evolve idles (no proposal, no false failure, mirrors L1's idle
-  # contract). On "WAKE" drops a flag so evolve fires once.
   - id: check-trigger
-    command: >-
-      powershell.exe -NoProfile -ExecutionPolicy Bypass
-      -File .\plans\l3-check-trigger.ps1
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\l3-check-trigger.ps1
     timeoutMs: 20000
-
-  # ── 3. evolve — LLM propose step (only when check-trigger woke) ──
-  # l3-evolve.ps1 skips (exit 0, no LLM) when the flag is absent. When present it
-  # runs `opencode run` (no --dir, no -m) from the loop root and instructs the
-  # agent to WRITE proposal + patch to absolute paths under .build/spec-evolve/.
-  # Never edits target files directly (Scope B).
   - id: evolve
-    command: >-
-      powershell.exe -NoProfile -ExecutionPolicy Bypass
-      -File .\plans\l3-evolve.ps1
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\l3-evolve.ps1
     timeoutMs: 240000
     llm:
       provider: opencode
       prompt: >-
-        You are the L3 evolve agent. Verify the proposal file
-        (.build/spec-evolve/spec-evolve-proposals.md) and the patch
-        (.build/spec-evolve/spec-evolve.patch) exist, the proposal has all six
-        required fields per entry, and the patch targets only intake/config files
-        (never agent-loop/src/ or spec-factory/). Return JSON:
-        { "passed": boolean, "reason": "<markdown report of what was proposed and scope-check result>", "confidence": 0-1 }.
-
-  # ── 4. verify-proposal — fail loud if a triggered pattern produced nothing ──
-  # If check-trigger woke (flag present) but the proposal/patch is missing,
-  # empty, or fails git apply --check / Scope B, exit non-zero (catches silent
-  # LLM no-ops — PRD user story #5). If the trigger idled (no flag), exit 0
-  # (clean no-op, never a failure).
+        You are the L3 evolve agent. Verify the proposal file (.build/spec-evolve/spec-evolve-proposals.md) and the
+        patch (.build/spec-evolve/spec-evolve.patch) exist, the proposal has all six required fields per entry, and the
+        patch targets only intake/config files (never agent-loop/src/ or spec-factory/). Return JSON: { "passed":
+        boolean, "reason": "<markdown report of what was proposed and scope-check result>", "confidence": 0-1 }.
   - id: verify-proposal
     command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\verify-proposal.ps1
     timeoutMs: 20000

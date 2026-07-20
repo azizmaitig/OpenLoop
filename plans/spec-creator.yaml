@@ -1,4 +1,4 @@
-﻿planName: spec-creator
+planName: spec-creator
 tasks:
   - id: read-state
     command: type STATE.md
