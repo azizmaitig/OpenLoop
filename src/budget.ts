@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { readRunLog as _readRunLog } from './run-log.js';
 
 const RUN_LOG_FILENAME = 'loop-run-log.md';
-const DEFAULT_DAILY_CAP = 100;
+const DEFAULT_DAILY_CAP = 1000;
 
 export interface BudgetStatus {
   status: 'ok' | 'report_only' | 'exceeded';
