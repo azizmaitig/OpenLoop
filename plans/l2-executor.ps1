@@ -29,6 +29,13 @@ $ErrorActionPreference = 'Stop'
 $Specs    = Resolve-Path -LiteralPath $Specs
 $ProtoRoot = Resolve-Path -LiteralPath $ProtoRoot
 
+# Resolve opencode binary (same pattern as l1-draft-increment.ps1).
+$OpencodeBinary = "C:\Users\azizm\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe"
+if (-not (Test-Path -LiteralPath $OpencodeBinary)) {
+    Write-Error "L2 EXECUTOR: opencode CLI not found at $OpencodeBinary"
+    exit 1
+}
+
 # Parse the increment identifier N from a lease/increment token.
 #
 # Two shapes are accepted (Issue 6 upgrade + backward-compatible legacy):
