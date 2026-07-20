@@ -95,31 +95,49 @@ if ([string]::IsNullOrWhiteSpace($idea)) {
 Write-Host "L1 DRAFT: running speckit chain for idea -> '$idea'"
 
 # Run from the spec-factory workspace so .opencode/commands/speckit.* + .specify/
-# resolve. Each step is its own `opencode run` (the exact manual flow).
+# resolve. Use a SINGLE `opencode run` session: the speckit commands (specify → plan
+# → tasks) are designed for an interactive flow where the agent carries state between
+# steps. Three separate `opencode run` calls each spawn a fresh agent with no memory
+# of the prior step — /speckit.plan won't find the spec it just wrote, etc.
+# Single prompt avoids that and saves ~2× LLM startup overhead.
 Push-Location -LiteralPath $workspace
 try {
-    & $Opencode run "/speckit.specify $idea"
-    if ($LASTEXITCODE -ne 0) { Log-Run '-' 'failed' "speckit.specify exit $LASTEXITCODE"; Write-Error "L1 DRAFT: /speckit.specify failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+    $chainPrompt = @"
+Run the full spec-kit chain for this idea.
+DO NOT stop until all three steps complete.
 
-    & $Opencode run "/speckit.plan"
-    if ($LASTEXITCODE -ne 0) { Log-Run '-' 'failed' "speckit.plan exit $LASTEXITCODE"; Write-Error "L1 DRAFT: /speckit.plan failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+Step 1 — /speckit.specify $idea
+Step 2 — /speckit.plan
+Step 3 — /speckit.tasks
 
-    & $Opencode run "/speckit.tasks"
-    if ($LASTEXITCODE -ne 0) { Log-Run '-' 'failed' "speckit.tasks exit $LASTEXITCODE"; Write-Error "L1 DRAFT: /speckit.tasks failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+Write all outputs into the $specs directory.
+"@
+    & $Opencode run --auto $chainPrompt
+    $chainExit = $LASTEXITCODE
 } finally {
     Pop-Location
 }
 
-# Artifact guard: the chain must have produced an evolve-N*.md checkpoint in the specs workspace.
-$produced = @(Get-ChildItem -LiteralPath $specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue)
-if ($produced.Count -eq 0) {
-    Log-Run '-' 'failed' "chain exited 0 but no evolve-N in $specs"
-    Write-Error "L1 DRAFT: speckit chain exited 0 but produced no evolve-N*.md checkpoint in $specs."
+if ($chainExit -ne 0) {
+    Log-Run '-' 'failed' "speckit chain exit $chainExit"
+    Write-Error "L1 DRAFT: speckit chain failed (exit $chainExit)."
+    exit $chainExit
+}
+
+# Artifact guard: count evolve-N*.md BEFORE and AFTER the chain. The guard must
+# detect NEW checkpoints, not match stale ones from prior increments (evolve-002.md
+# would always make a naive `Count -eq 0` check pass, hiding silent failures).
+$beforeCount = @(Get-ChildItem -LiteralPath $specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue).Count
+$after = @(Get-ChildItem -LiteralPath $specs -File -Filter 'evolve-*.md' -ErrorAction SilentlyContinue)
+if ($after.Count -le $beforeCount) {
+    Log-Run '-' 'failed' "chain exit 0 but no NEW evolve-N in $specs (was $beforeCount, now $($after.Count))"
+    Write-Error "L1 DRAFT: speckit chain exited 0 but produced no NEW evolve-N*.md checkpoint in $specs (before=$beforeCount after=$($after.Count))."
     exit 1
 }
 
-# spec_N correlates with the evolve-N this draft just wrote (take the top match).
-$logN = Resolve-SpecN $produced[0].FullName
-Write-Host "L1 DRAFT: speckit chain complete - $($produced.Count) evolve-N checkpoint(s) in specs workspace."
+# spec_N correlates with the newest evolve-N (sorted ascending, take last).
+$newest = $after | Sort-Object Name | Select-Object -Last 1
+$logN = Resolve-SpecN $newest.FullName
+Write-Host "L1 DRAFT: speckit chain complete - new checkpoint $($newest.Name) in specs workspace."
 Log-Run $logN 'drafted' $idea
 exit 0

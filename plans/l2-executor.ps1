@@ -153,15 +153,88 @@ switch ($Stage) {
         $l = if ($N) { @{ N = $N } } else { Read-Lease }
         $wt = Join-Path $ProtoRoot "wt-$($l.N)"
         Write-Host "IMPLEMENT: building increment $($l.N) in worktree $wt"
+
+        # 1. Copy spec artifacts into the worktree so speckit.implement can read them.
         $incName = Resolve-IncrementDir $l.N
         $incDir = Join-Path $Specs $incName
         if (Test-Path -LiteralPath $incDir) {
             Copy-Item -LiteralPath $incDir -Destination $wt -Recurse -Force
-            Write-Host "  copied increment $incName to worktree"
+            Write-Host "  copied increment $incName spec to worktree"
         }
+
+        # 2. Run speckit.implement inside the worktree via opencode run --auto.
+        #    Push-Location so the worktree's .opencode/commands/ resolves.
+        #    --auto approves external_directory perms (worktree outside agent-loop root).
+        # 3. Run /speckit.converge to close the spec<->code gap. If it appends a
+        #    "## Phase N: Convergence" section to tasks.md, re-run implement on those
+        #    new tasks and converge again - bounded loop until converged (or max iters).
+        # 4. Only after converge reports clean do we write IMPLEMENTED.md.
+        $tasksFile = Join-Path $wt "tasks.md"
+        $maxConverge = 5
+        $iter = 0
+        while ($true) {
+            $iter++
+
+            # --- implement pass ---
+            Push-Location -LiteralPath $wt
+            try {
+                $prompt = "Run /speckit.implement. Read spec from $incName/ and build the feature. Write all code files into this directory."
+                & $OpencodeBinary run --auto $prompt
+                $implExit = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($implExit -ne 0) {
+                Write-Error "IMPLEMENT: speckit.implement failed (exit $implExit) for N=$($l.N) (converge iter $iter)"
+                exit $implExit
+            }
+
+            # --- converge pass ---
+            $before = if (Test-Path -LiteralPath $tasksFile) {
+                (Get-Content -LiteralPath $tasksFile -Raw)
+            } else { '' }
+            $hadConvergeBefore = $before -match '##\s*Phase\s+\d+:\s*Convergence'
+
+            Push-Location -LiteralPath $wt
+            try {
+                & $OpencodeBinary run --auto "/speckit.converge"
+                $convExit = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($convExit -ne 0) {
+                Write-Error "IMPLEMENT: /speckit.converge failed (exit $convExit) for N=$($l.N) (iter $iter)"
+                exit $convExit
+            }
+
+            $after = if (Test-Path -LiteralPath $tasksFile) {
+                (Get-Content -LiteralPath $tasksFile -Raw)
+            } else { '' }
+            $hasConvergeAfter = $after -match '##\s*Phase\s+\d+:\s*Convergence'
+
+            # Converged when tasks.md has no Convergence section. Loop only while a
+            # Convergence section EXISTS and we have not yet built it.
+            if (-not $hasConvergeAfter) {
+                Write-Host "IMPLEMENT: converged clean at iter $iter for N=$($l.N) - no remaining gaps."
+                break
+            }
+            if ($hadConvergeBefore) {
+                # Convergence section existed before this pass too and still does:
+                # implement did not consume the appended tasks. Avoid infinite loop.
+                Write-Warning "IMPLEMENT: converge still reports gaps after iter $iter (N=$($l.N)); stopping to avoid loop. Review tasks.md."
+                break
+            }
+            if ($iter -ge $maxConverge) {
+                Write-Warning "IMPLEMENT: hit maxConverge ($maxConverge) for N=$($l.N); stopping. Review tasks.md."
+                break
+            }
+            Write-Host "IMPLEMENT: converge appended tasks at iter $iter (N=$($l.N)) - re-running implement."
+        }
+
+        # 4. Write IMPLEMENTED.md marker (verify stage checks this).
         $marker = Join-Path $wt "IMPLEMENTED.md"
         Set-Content -LiteralPath $marker -Value "# Implemented`n`nIncrement $incName was built in this worktree (wt-$($l.N))." -NoNewline
-        Write-Host "IMPLEMENT done for N=$($l.N)"
+        Write-Host "IMPLEMENT done for N=$($l.N) - speckit.implement + converge completed."
     }
 
     'verify' {
