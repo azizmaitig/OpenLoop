@@ -219,4 +219,111 @@ describe("Issue 4 — spec-evolve.yaml (L3 evolve plan)", () => {
     expect(res.code).toBe(0);
     expect(res.out).toContain("PASS");
   });
+
+  // ── Issue 5 — `git apply --check` assertion (hermetic temp git repo) ──
+  // Build a REAL git repo so `git apply --check` is exercised without touching the
+  // real agent-loop tree. The "good" patch is a genuine `git diff` against a tracked
+  // file; the "bad" patch is context-corrupted so --check must reject it.
+  function setupGit(): Ctx {
+    const tmp = mkdtempSync(join(tmpdir(), "spec-evolve-git-"));
+    const root = join(tmp, "repo");
+    const plansDir = join(root, "plans");
+    const buildDir = join(root, ".build", "spec-evolve");
+    mkdirSync(plansDir, { recursive: true });
+    mkdirSync(buildDir, { recursive: true });
+    copyFileSync(TRIGGER, join(plansDir, "l3-should-evolve.ps1"));
+    copyFileSync(VERIFY, join(plansDir, "verify-proposal.ps1"));
+
+    const target = join(root, "plans", "l1-draft-increment.ps1");
+    writeFileSync(target, "line1\r\nline2\r\nline3\r\n", "utf8");
+
+    const git = (args: string[]) =>
+      spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+    git(["init", "-q"]);
+    git(["config", "user.email", "test@local"]);
+    git(["config", "user.name", "test"]);
+    git(["add", "-A"]);
+    git(["commit", "-qm", "init"]);
+    return { root, plansDir, buildDir };
+  }
+
+  function writeGoodProposalAndPatch(ctx: Ctx) {
+    const targetRel = "plans/l1-draft-increment.ps1";
+    const targetAbs = join(ctx.root, targetRel);
+    writeFileSync(targetAbs, "line1\r\nline2-edited\r\nline3\r\n", "utf8");
+    const diff = spawnSync("git", ["-C", ctx.root, "diff", "--", targetRel], {
+      encoding: "utf8",
+    }).stdout;
+    // Restore the tree to committed state so the patch applies cleanly under
+    // `git apply --check` (the patch turns HEAD -> edited; tree must be clean).
+    spawnSync("git", ["-C", ctx.root, "checkout", "--", targetRel], {
+      encoding: "utf8",
+    });
+    writeFileSync(
+      join(ctx.buildDir, "spec-evolve-proposals.md"),
+      [
+        "- date: 2026-07-20",
+        "- trigger_pattern: 3x rejected spec 006",
+        "- target_file: plans/l1-draft-increment.ps1",
+        "- current -> proposed: tightened specify prompt",
+        "- why: verifier keeps rejecting 006 on same root cause",
+        "- confidence: 0.7",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+    writeFileSync(join(ctx.buildDir, "spec-evolve.patch"), diff, "utf8");
+  }
+
+  function writeCorruptedPatch(ctx: Ctx) {
+    writeFileSync(
+      join(ctx.buildDir, "spec-evolve-proposals.md"),
+      [
+        "- date: 2026-07-20",
+        "- trigger_pattern: 3x rejected spec 006",
+        "- target_file: plans/l1-draft-increment.ps1",
+        "- current -> proposed: tightened specify prompt",
+        "- why: verifier keeps rejecting 006",
+        "- confidence: 0.7",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+    // Corrupted: modifies the real tracked file but with context that does NOT
+    // match its current content -> git apply --check must reject it.
+    writeFileSync(
+      join(ctx.buildDir, "spec-evolve.patch"),
+      [
+        "diff --git a/plans/l1-draft-increment.ps1 b/plans/l1-draft-increment.ps1",
+        "--- a/plans/l1-draft-increment.ps1",
+        "+++ b/plans/l1-draft-increment.ps1",
+        "@@ -1,3 +1,3 @@",
+        " this-line-does-not-exist-in-the-tree",
+        "-line2",
+        "+line2-edited",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+
+  test("verify-proposal PASSES (exit 0) when patch applies cleanly via git apply --check", () => {
+    ctx = setupGit();
+    setFlag(ctx);
+    writeGoodProposalAndPatch(ctx);
+    const res = runVerify(ctx);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("PASS");
+    expect(res.out).toContain("applies cleanly");
+  });
+
+  test("verify-proposal FAILS LOUD (non-zero) when patch does not apply (git apply --check rejects)", () => {
+    ctx = setupGit();
+    setFlag(ctx);
+    writeCorruptedPatch(ctx);
+    const res = runVerify(ctx);
+    expect(res.code).not.toBe(0);
+    expect(res.out).toContain("FAIL");
+    expect(res.out).toContain("does not apply");
+  });
 });

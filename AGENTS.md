@@ -61,6 +61,22 @@ Configured loops live in `_loops.yaml` — see that file for the full list (cale
 - All high-risk paths require human review (see Paths denylist below).
 - Review STATE.md daily.
 
+### L3 evolve review duty (recurring, like daily STATE.md)
+The L3 evolve pass (`plans/spec-evolve.yaml`, ADR-0019) proposes edits to the fast
+loops' own intake/config layer — it never edits `agent-loop/src/` or `spec-factory/`
+(Scope B). When the slow daemon wakes, it drops a proposal at
+`.build/spec-evolve/spec-evolve-proposals.md` plus a `git diff`-shaped
+`.build/spec-evolve/spec-evolve.patch`.
+- **Review** `spec-evolve-proposals.md` — each entry has
+  `{date, trigger_pattern, target_file, current->proposed, why, confidence}`.
+- If good, `git apply .build/spec-evolve/spec-evolve.patch` from the repo root
+  (no `gh`/remote needed; draft-PR is a future upgrade).
+- **Clear the entry** from the proposals file after applying (or reject + delete
+  the patch) so the next cycle starts clean.
+- The `verify-proposal` gate already fails loud on a missing/empty proposal, a
+  Scope B violation, or a patch that `git apply --check` rejects — but the human
+  gate (A) means nothing is auto-applied.
+
 ### Worktrees
 - Use an explicit `git worktree` and run opencode with `--dir <worktree>` for implementer runs (L2+).
 - One worktree per fix attempt; discard after verifier REJECT.

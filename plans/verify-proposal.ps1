@@ -19,7 +19,9 @@ param(
     [string] $Root
 )
 
-$ErrorActionPreference = 'Stop'
+# Continue (not Stop): this script reports failures via Write-Error + exit, and a
+# rejected `git apply --check` emits stderr that would otherwise abort under Stop.
+$ErrorActionPreference = 'Continue'
 $root = if ($Root) { $Root } else { Split-Path $PSScriptRoot }
 $buildDir = Join-Path (Join-Path $root '.build') 'spec-evolve'
 $flag     = Join-Path $buildDir 'should-evolve.flag'
@@ -46,10 +48,18 @@ if ([string]::IsNullOrWhiteSpace($propContent)) {
 }
 
 # Required fields per proposal entry (ADR-0019 section 5 / Issue 5 schema).
-$requiredFields = @('date', 'trigger_pattern', 'target_file', 'current', 'why', 'confidence')
+# `current -> proposed` is emitted as ONE field by the evolve step (spec-evolve.yaml
+# prompt: "- current -> proposed: ..."). Assert the PAIR, not just the bare token
+# `current`, so a proposal that mentions "current" elsewhere but omits the
+# current->proposed delta does not false-pass.
+$requiredFields = @('date', 'trigger_pattern', 'target_file', 'why', 'confidence')
 $missing = $requiredFields | Where-Object { -not ($propContent -match [regex]::Escape($_)) }
 if ($missing.Count -gt 0) {
     Write-Error "VERIFY-PROPOSAL: FAIL - proposal missing required field(s): $($missing -join ', ')."
+    exit 1
+}
+if (-not ($propContent -match 'current\s*-+>\s*proposed')) {
+    Write-Error "VERIFY-PROPOSAL: FAIL - proposal missing the 'current -> proposed' delta field."
     exit 1
 }
 
@@ -69,6 +79,30 @@ $bad = $locked | Where-Object { $patchContent -match [regex]::Escape($_) }
 if ($bad.Count -gt 0) {
     Write-Error "VERIFY-PROPOSAL: FAIL - patch touches locked path(s): $($bad -join ', '). Scope B forbids editing engine/src or spec-factory content."
     exit 1
+}
+
+# Applyability gate (Issue 5): the patch must be a real `git diff`-shaped file the
+# human can `git apply`. `git apply --check` validates WITHOUT modifying the tree,
+# run from the agent-loop root (which is the repo root for this project). A malformed
+# or context-drifted patch fails loud here, before a human ever touches it.
+# No `gh` dependency — this is a strictly local check (ADR-0019 human gate A).
+# NOTE: this script uses Continue preference, so a rejected patch's stderr is a
+# non-terminating message and $LASTEXITCODE is reliable.
+$gitExe = (Get-Command git -ErrorAction SilentlyContinue)
+$inWorkTree = $false
+if ($null -ne $gitExe) {
+    & git -C $root rev-parse --is-inside-work-tree 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $inWorkTree = $true }
+}
+if (-not $inWorkTree) {
+    Write-Host 'VERIFY-PROPOSAL: SKIP - not a git work tree; cannot run apply --check (patch still validated for scope B).'
+} else {
+    $gitOut = & git -C $root apply --check $patch 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "VERIFY-PROPOSAL: FAIL - patch does not apply cleanly (git apply --check from $root):`n$gitOut"
+        exit 1
+    }
+    Write-Host 'VERIFY-PROPOSAL: OK - patch applies cleanly (git apply --check passed).'
 }
 
 Write-Host 'VERIFY-PROPOSAL: PASS - proposal + patch present, fields complete, scope B respected.'
