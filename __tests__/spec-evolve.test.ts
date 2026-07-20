@@ -36,6 +36,8 @@ import { checkPlanAgainstConstitution } from "../src/constitution";
 
 const PLAN = join(import.meta.dirname, "..", "plans", "spec-evolve.yaml");
 const TRIGGER = join(import.meta.dirname, "..", "plans", "l3-should-evolve.ps1");
+const CHECK = join(import.meta.dirname, "..", "plans", "l3-check-trigger.ps1");
+const EVOLVE = join(import.meta.dirname, "..", "plans", "l3-evolve.ps1");
 const VERIFY = join(import.meta.dirname, "..", "plans", "verify-proposal.ps1");
 
 const WAKE_LOG = [
@@ -68,6 +70,8 @@ function setup(): Ctx {
   mkdirSync(plansDir, { recursive: true });
   mkdirSync(buildDir, { recursive: true });
   copyFileSync(TRIGGER, join(plansDir, "l3-should-evolve.ps1"));
+  copyFileSync(CHECK, join(plansDir, "l3-check-trigger.ps1"));
+  copyFileSync(EVOLVE, join(plansDir, "l3-evolve.ps1"));
   copyFileSync(VERIFY, join(plansDir, "verify-proposal.ps1"));
   return { root, plansDir, buildDir };
 }
@@ -115,15 +119,15 @@ function setFlag(ctx: Ctx) {
   writeFileSync(join(ctx.buildDir, "should-evolve.flag"), "2026-07-20T03:17:00", "utf8");
 }
 
-// Run check-trigger exactly like the plan command (stubbed trigger via -File copy).
+// Run check-trigger exactly like the fixed plan command (script-file form).
 function runCheckTrigger(ctx: Ctx, logLines: string): { code: number; out: string; flag: boolean } {
   const logPath = join(ctx.root, "loop-run-log.md");
   writeFileSync(logPath, logLines, "utf8");
   const res = spawnSync(
     "powershell.exe",
     [
-      "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-      `$log = Join-Path '${ctx.root}' 'loop-run-log.md'; $out = Join-Path (Join-Path '${ctx.root}' '.build') 'spec-evolve'; if (-not (Test-Path -LiteralPath $out)) { New-Item -ItemType Directory -Path $out -Force | Out-Null }; $flag = Join-Path $out 'should-evolve.flag'; $decision = & { powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path '${ctx.root}' 'plans/l3-should-evolve.ps1') -Log $log }; if ($decision -match 'WAKE') { Set-Content -LiteralPath $flag -Value (Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S'); Write-Host 'WAKE' } else { if (Test-Path -LiteralPath $flag) { Remove-Item -LiteralPath $flag -Force }; Write-Host 'IDLE' }; exit 0`,
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+      join(ctx.plansDir, "l3-check-trigger.ps1"),
     ],
     { encoding: "utf8" },
   );

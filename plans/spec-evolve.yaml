@@ -1,4 +1,4 @@
-# spec-evolve.yaml — L3 evolve pass (ADR-0019 §Decision 5 / Issue 4).
+﻿# spec-evolve.yaml — L3 evolve pass (ADR-0019 §Decision 5 / Issue 4, fixed Issue 5 dry-run).
 #
 # The SLOW loop that tightens the fast loops (L1 drafts, L2 builds). It reads the
 # shared `loop-run-log.md` (written by l1-draft-increment.ps1 / l2-executor.ps1),
@@ -11,15 +11,18 @@
 #   bun run loop.ts daemon --port 3003 --plan "plans/spec-evolve.yaml" --cron "17 3 * * *"
 # (off L1's */15 grid). Two-daemon isolation preserved per ADR-0001 Amendment.
 #
-# CWD note: the issue text says "CWD = spec-factory", but spec-factory/ does not
+# CWD note: the issue text said "CWD = spec-factory", but spec-factory/ does not
 # exist in this repo and the evolve pass needs NO spec-factory workspace — it only
-# reads loop-run-log.md (loop root) and writes proposals. Per PLAN-WRITING-GUIDE §7B.0
-# P2 we OMIT --dir (space-path fails) and run `opencode run` from the loop root where
-# .opencode/ resolves, instructing the agent to write artifacts by ABSOLUTE path
-# (mirrors l1-draft-increment.ps1's Push-Location + no --dir pattern). Flag to human:
-# if a real spec-factory/ workspace is later added, swap the CWD to Push-Location there.
+# reads loop-run-log.md (loop root) and writes proposals. Per PLAN-WRITING-GUIDE
+# §7B.0 P2 we OMIT --dir (space-path fails) and run `opencode run` from the loop
+# root where .opencode/ resolves, instructing the agent to write artifacts by
+# ABSOLUTE path. If a real spec-factory/ workspace is later added, swap the CWD.
 #
 # No -m flag (uses opencode default — bare -m crashes, see guide §7B.0 P1).
+#
+# Trigger/evolve steps are REAL .ps1 files (not inline -Command) so $PSScriptRoot
+# resolves correctly — inline -Command leaves $PSScriptRoot empty and Join-Path
+# throws (caught by the Issue 5 dry run).
 planName: spec-evolve
 tasks:
   # ── 1. read-state (constitution gate: read-state-first) ──
@@ -28,49 +31,24 @@ tasks:
     timeoutMs: 5000
 
   # ── 2. check-trigger — cheap deterministic combo-trigger (Issue 3), no LLM ──
-  # Runs l3-should-evolve.ps1. On "IDLE" it exits 0 and writes NO flag → the
-  # evolve step below idles this cycle (no proposal, no false failure — mirrors
-  # L1's idle contract). On "WAKE" it drops a flag so evolve fires once.
-  # The flag path matches what `evolve` and `verify-proposal` read.
+  # l3-check-trigger.ps1 wraps l3-should-evolve.ps1. On "IDLE" exits 0, writes NO
+  # flag → evolve idles (no proposal, no false failure, mirrors L1's idle
+  # contract). On "WAKE" drops a flag so evolve fires once.
   - id: check-trigger
     command: >-
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-      "$log = Join-Path $PSScriptRoot 'loop-run-log.md';
-       $out = Join-Path (Join-Path $PSScriptRoot '.build') 'spec-evolve';
-       if (-not (Test-Path -LiteralPath $out)) { New-Item -ItemType Directory -Path $out -Force | Out-Null };
-       $flag = Join-Path $out 'should-evolve.flag';
-       $decision = & { powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'plans/l3-should-evolve.ps1') -Log $log };
-       if ($decision -match 'WAKE') { Set-Content -LiteralPath $flag -Value (Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S'); Write-Host 'L3 TRIGGER: WAKE — flag set, evolve will fire.' }
-       else { if (Test-Path -LiteralPath $flag) { Remove-Item -LiteralPath $flag -Force }; Write-Host 'L3 TRIGGER: IDLE — no flag, evolve will idle.' };
-       exit 0"
+      powershell.exe -NoProfile -ExecutionPolicy Bypass
+      -File .\plans\l3-check-trigger.ps1
     timeoutMs: 20000
 
   # ── 3. evolve — LLM propose step (only when check-trigger woke) ──
-  # The trigger already appended an `evolved-proposal` marker on WAKE, so the
-  # log proves a pattern was found. This task runs `opencode run` (no --dir,
-  # no -m) from the loop root and instructs the agent to WRITE the proposal +
-  # patch directly to absolute paths under .build/spec-evolve/. It must NEVER
-  # edit target files directly (Scope B). If no flag/marker exists (idle
-  # branch) the command exits 0 without spawning the LLM.
+  # l3-evolve.ps1 skips (exit 0, no LLM) when the flag is absent. When present it
+  # runs `opencode run` (no --dir, no -m) from the loop root and instructs the
+  # agent to WRITE proposal + patch to absolute paths under .build/spec-evolve/.
+  # Never edits target files directly (Scope B).
   - id: evolve
     command: >-
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-      "$flag = Join-Path $PSScriptRoot '.build/spec-evolve/should-evolve.flag';
-       if (-not (Test-Path -LiteralPath $flag)) { Write-Host 'L3 EVOLVE: idle (no trigger) — skipping LLM propose.'; exit 0 };
-       $out = Join-Path (Join-Path $PSScriptRoot '.build') 'spec-evolve';
-       if (-not (Test-Path -LiteralPath $out)) { New-Item -ItemType Directory -Path $out -Force | Out-Null };
-       opencode run --auto
-       \"Read $(Join-Path $PSScriptRoot 'loop-run-log.md') and every rejected evolve-N spec referenced by a `rejected`/`failed`/`idle` entry.
-       PROPOSE edits ONLY to the fast loops' intake/config layer: the specify seed prompt, the gate-evolve threshold, spec-creator.yaml task ordering/timeouts, or the l1-*.ps1 helpers. NEVER edit agent-loop/src/ or spec-factory/ command content.
-       Write a proposal file to $out/spec-evolve-proposals.md with one block per proposal, each containing EXACTLY these fields:
-         - date
-         - trigger_pattern
-         - target_file
-         - current -> proposed
-         - why
-         - confidence
-       ALSO write a git-diff-shaped patch to $out/spec-evolve.patch that the human can `git apply`. The patch MUST target only the intake/config files above — never src/ or spec-factory/.
-       Print ONLY 'proposal written'. Exit 0.\"
+      powershell.exe -NoProfile -ExecutionPolicy Bypass
+      -File .\plans\l3-evolve.ps1
     timeoutMs: 240000
     llm:
       provider: opencode
@@ -83,10 +61,10 @@ tasks:
         { "passed": boolean, "reason": "<markdown report of what was proposed and scope-check result>", "confidence": 0-1 }.
 
   # ── 4. verify-proposal — fail loud if a triggered pattern produced nothing ──
-  # If check-trigger woke (flag present) but the proposal/patch is missing or
-  # empty, exit non-zero (catches silent LLM no-ops — PRD user story #5). If the
-  # trigger idled (no flag), exit 0 (clean no-op, never a failure).
+  # If check-trigger woke (flag present) but the proposal/patch is missing,
+  # empty, or fails git apply --check / Scope B, exit non-zero (catches silent
+  # LLM no-ops — PRD user story #5). If the trigger idled (no flag), exit 0
+  # (clean no-op, never a failure).
   - id: verify-proposal
-    command: >-
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\verify-proposal.ps1
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\verify-proposal.ps1
     timeoutMs: 20000
