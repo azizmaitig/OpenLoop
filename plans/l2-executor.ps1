@@ -67,6 +67,20 @@ function Read-Lease {
     return @{ Raw = $raw; N = $n }
 }
 
+# ── SHARED RUN LOG (L3 evolve-pass evidence, ADR-0019 §3/§4) ──────────────────
+# Append one line to the agent-loop root run log so the L3 evolve pass can
+# correlate "L1 drafted N" with "L2 built/rejected N". Append-only; never
+# rewrites the file. Format: {ts, loop:L2, spec_N:<N>, event:<ev>, detail:<d>}
+# The log lives at the agent-loop repo root (one level above plans/), robust to
+# the vault's space-containing path via -LiteralPath.
+$RunLog = Join-Path (Split-Path $PSScriptRoot) 'loop-run-log.md'
+function Log-Run ([string]$N, [string]$Event, [string]$Detail = '') {
+    $ts  = Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S'
+    $det = if ($Detail) { " detail:$Detail" } else { '' }
+    $line = "{ts:$ts, loop:L2, spec_N:$N, event:$Event$det}"
+    Add-Content -LiteralPath $RunLog -Value $line -NoNewline
+}
+
 # Resolve the increment directory name for a given N from the evolve-N.md body.
 # Does NOT depend on Read-Lease or Discover-N — pure lookup by N.
 # Returns e.g. "003-watchdir-trigger".
@@ -155,7 +169,12 @@ switch ($Stage) {
         $wt = Join-Path $ProtoRoot "wt-$($l.N)"
         Write-Host "VERIFY: checking increment $($l.N) in worktree $wt"
         $marker = Join-Path $wt "IMPLEMENTED.md"
-        if (-not (Test-Path -LiteralPath $marker)) { throw "verify: IMPLEMENTED.md not found in worktree $wt" }
+        if (-not (Test-Path -LiteralPath $marker)) {
+            # Gate rejected: verifier could not confirm the build. Record the
+            # rejection signal for the L3 evolve pass (ADR-0019 §4) and fail loud.
+            Log-Run $l.N 'rejected' "verify: IMPLEMENTED.md not found in worktree $wt"
+            throw "verify: IMPLEMENTED.md not found in worktree $wt"
+        }
         $l2 = Read-Lease
         $incName = Resolve-IncrementDir $l2.N
         $incDir = Join-Path $Specs $incName
@@ -168,6 +187,8 @@ switch ($Stage) {
         $l = if ($N) { @{ N = $N } } else { Read-Lease }
         $stamp = Join-Path $Specs "built-$($l.N)"
         Set-Content -LiteralPath $stamp -Value "built-$($l.N) completed $(Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S')" -NoNewline
+        # Success signal for the L3 evolve pass (ADR-0019 §4): L2 built N.
+        Log-Run $l.N 'built'
         Write-Host "STAMPED built-$($l.N)"
     }
 
