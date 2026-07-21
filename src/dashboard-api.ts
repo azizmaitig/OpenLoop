@@ -9,7 +9,7 @@
  * it does not own, so existing behavior is untouched.
  */
 
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { OUTPUT_DIR } from './constants.js';
 import { basename, join } from 'node:path';
@@ -18,6 +18,7 @@ import { computeTaskMetrics, computeBudgetMetrics } from './metrics.js';
 import { loadCheckpoint } from './checkpoint.js';
 import { computeHealthScore as computePhaseHealthScore } from './memory-hooks.js';
 import type { CheckpointState } from './types.js';
+import type { DagNodeData, DagNodeStatus } from './types.js';
 
 // ── Types (mirror the dashboard contract) ──────────────────────────────────
 
@@ -313,6 +314,45 @@ export async function handleDashboardApi(
       } catch { /* skip unparseable */ }
     }
     return Response.json({ checkpoints });
+  }
+
+  // GET /api/specs — list specs from spec-factory
+  if (url.pathname === '/api/specs') {
+    const specDir = process.env.SPEC_FACTORY_DIR || join(basename(api.baseDir), '..', 'parallel loops', 'spec-factory', 'specs');
+    const fullSpecDir = join(api.baseDir, '..', 'parallel loops', 'spec-factory', 'specs');
+    try {
+      const entries = (await readdir(fullSpecDir, { withFileTypes: true })).filter((d) => d.isDirectory() && /^\d{3}-/.test(d.name));
+      const specs = [];
+      for (const entry of entries) {
+        const specMdPath = join(fullSpecDir, entry.name, 'spec.md');
+        let title = entry.name;
+        let status = 'Draft';
+        try {
+          const content = await readFile(specMdPath, 'utf-8');
+          const titleMatch = content.match(/^#\s+(.+)/m);
+          if (titleMatch) title = titleMatch[1].trim();
+          const statusMatch = content.match(/^\*\*Status\*\*:\s*(.+)/m);
+          if (statusMatch) status = statusMatch[1].trim();
+        } catch { /* use defaults */ }
+        const specNum = entry.name.match(/^(\d{3})/)?.[1] ?? '';
+        const hasBuiltDir = entries.some((d) => d.name === `built-${specNum}`);
+        specs.push({ id: entry.name, title, status, specNum, hasBuiltDir });
+      }
+      return Response.json({ specs });
+    } catch (err) {
+      return Response.json({ error: `cannot read specs: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
+    }
+  }
+
+  // GET /api/evolve-proposals — read L3 evolve proposals markdown
+  if (url.pathname === '/api/evolve-proposals') {
+    const proposalsPath = join(api.baseDir, '.build', 'spec-evolve', 'spec-evolve-proposals.md');
+    try {
+      const content = await readFile(proposalsPath, 'utf-8');
+      return Response.json({ content, exists: true });
+    } catch {
+      return Response.json({ content: '', exists: false });
+    }
   }
 
   // GET /api/checkpoint

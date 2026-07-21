@@ -7,6 +7,9 @@ import { GatePanel } from './components/GatePanel';
 import { OpsHealthScreen } from './screens/OpsHealthScreen';
 import { DiagnosticScreen } from './screens/DiagnosticScreen';
 import { DagScreen } from './screens/DagScreen';
+import { SpecsScreen } from './screens/SpecsScreen';
+import { OrchestrationScreen } from './screens/OrchestrationScreen';
+import { EvolveScreen } from './screens/EvolveScreen';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,7 +33,7 @@ export function App() {
             <GatePanel />
           </div>
           <main className="app-main">
-            {screen === 'ops' ? <OpsHealthScreen /> : screen === 'diag' ? <DiagnosticScreen /> : <DagScreen />}
+            {screen === 'ops' ? <OpsHealthScreen /> : screen === 'diag' ? <DiagnosticScreen /> : screen === 'dag' ? <DagScreen /> : screen === 'specs' ? <SpecsScreen /> : screen === 'orchestration' ? <OrchestrationScreen /> : <EvolveScreen />}
           </main>
         </div>
       </LoopStreamProvider>

@@ -1,4 +1,4 @@
-export type ScreenId = 'ops' | 'diag' | 'dag';
+export type ScreenId = 'ops' | 'diag' | 'dag' | 'specs' | 'orchestration' | 'evolve';
 
 export function TabNav({
   active,
@@ -17,6 +17,15 @@ export function TabNav({
       </button>
       <button className={active === 'dag' ? 'active' : ''} onClick={() => onChange('dag')}>
         Graph
+      </button>
+      <button className={active === 'specs' ? 'active' : ''} onClick={() => onChange('specs')}>
+        Specs
+      </button>
+      <button className={active === 'orchestration' ? 'active' : ''} onClick={() => onChange('orchestration')}>
+        Orchestration
+      </button>
+      <button className={active === 'evolve' ? 'active' : ''} onClick={() => onChange('evolve')}>
+        Evolve
       </button>
     </nav>
   );
