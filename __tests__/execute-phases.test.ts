@@ -82,6 +82,22 @@ describe("executePhaseGroup", () => {
     expect(result.allPassed).toBe(true);
   });
 
+  test("agent phase without a command errors loudly — never silently passes", async () => {
+    const deps = makeDeps({
+      config: makeConfig([
+        makePhase({ name: "agent-task", type: "agent", prompt: "do the thing", command: undefined }),
+      ]),
+    });
+    const state = makeState();
+
+    const result = await executePhaseGroup(deps, state, 1);
+
+    expect(result.allPassed).toBe(false);
+    const pr = result.state.phaseResults["agent-task"]!;
+    expect(pr.status).toBe("error");
+    expect(pr.stderr).toContain("agent");
+  });
+
   test("executes all phases in order", async () => {
     const phases: PhaseDef[] = [
       makePhase({ name: "alpha", command: "echo first" }),

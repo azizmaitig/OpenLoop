@@ -132,3 +132,97 @@ describe("validatePlanSchema", () => {
     expect(rules.has("missing-llm-prompt")).toBe(true);
   });
 });
+
+describe("agent task rules (v10, ADR-0023)", () => {
+  test("accepts a valid type: agent task", () => {
+    const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
+      {
+        id: "analyze",
+        type: "agent",
+        prompt: "Analyze the auth module and report security issues.",
+        workspace: { type: "docker" },
+      },
+      { id: "verify", command: "bun test" },
+    ]);
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("accepts an agent task with optional agent/model fields", () => {
+    const doc = plan([
+      {
+        id: "analyze",
+        type: "agent",
+        prompt: "x",
+        agent: "openhands",
+        model: { provider: "ollama", model: "qwen2.5-coder" },
+      },
+    ]);
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("rejects type: agent combined with command (mutually exclusive)", () => {
+    const doc = plan([
+      { id: "bad", type: "agent", command: "echo hi", prompt: "x" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "agent-with-command");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("mutually exclusive");
+    // empty-command must NOT fire for agent tasks — the agent rule governs
+    expect(errs.some((e) => e.rule === "empty-command")).toBe(false);
+  });
+
+  test("rejects an agent task without a prompt", () => {
+    const doc = plan([
+      { id: "bad", type: "agent" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "missing-agent-prompt")).toBe(true);
+    // a command-less agent task must not trip the command-task rule
+    expect(errs.some((e) => e.rule === "empty-command")).toBe(false);
+  });
+
+  test("rejects an unknown workspace.type", () => {
+    const doc = plan([
+      { id: "bad", type: "agent", prompt: "x", workspace: { type: "vm" } },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "unknown-workspace-type");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("local | docker");
+  });
+
+  test("rejects an unknown task type", () => {
+    const doc = plan([
+      // @ts-expect-error intentionally invalid type value
+      { id: "bad", type: "robot", command: "echo hi" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "unknown-task-type")).toBe(true);
+  });
+
+  test("explicit type: command keeps the legacy command requirement", () => {
+    const doc = plan([
+      { id: "bad", type: "command" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "empty-command")).toBe(true);
+    expect(errs.some((e) => e.rule === "missing-agent-prompt")).toBe(false);
+  });
+
+  test("flags agent rule violations inside composites", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      {
+        composites: [
+          { id: "agent-step", phases: [{ id: "sub", type: "agent", command: "echo hi" }] },
+        ],
+      },
+    );
+    const errs = validatePlanSchema(doc);
+    expect(
+      errs.some((e) => e.rule === "agent-with-command" && e.detail.includes('Composite "agent-step"')),
+    ).toBe(true);
+  });
+});

@@ -20,7 +20,7 @@ export async function validatePhase(
 
   const prompt = buildEvalPrompt({
     phaseName: phase.name,
-    command: phase.command,
+    command: phase.command ?? '',
     stdout: result.stdout,
     stderr: result.stderr,
     exitCode: result.exitCode,

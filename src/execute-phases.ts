@@ -259,7 +259,7 @@ async function runSinglePhase(
     planName,
     iteration,
     phaseName: phase.name,
-    command: phase.command,
+    command: phase.command ?? '',
     dependsOn: phase.dependsOn,
     order,
   }));
@@ -451,11 +451,21 @@ async function executePhasesSequential(
 // ── Shell command executor ────────────────────────────────────────────────────
 
 async function executeShellCommand(
-  command: string,
+  command: string | undefined,
   timeoutMs?: number,
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
+  if (!command || command.trim() === '') {
+    return {
+      status: 'error',
+      exitCode: -1,
+      stdout: '',
+      stderr: 'No command to execute — agent tasks (type: agent) are not executable yet (v10 T2 wires the sidecar executor).',
+      durationMs: 0,
+      evidencePath: '',
+    };
+  }
   if (signal?.aborted) {
     return {
       status: 'error',

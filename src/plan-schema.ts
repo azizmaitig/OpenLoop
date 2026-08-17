@@ -75,12 +75,47 @@ function validateTask(
 ): void {
   const where = `${label} "${task.id ?? `#${idx}`}"`;
 
-  // Rule: command must be a non-empty string. The executor maps command -> name
-  // and runs it verbatim; an empty command produces no work and "passes".
-  if (task.command === undefined || task.command === null || task.command.trim() === '') {
+  // Rule: unknown task-kind discriminator (v10).
+  if (task.type !== undefined && task.type !== 'command' && task.type !== 'agent') {
+    errors.push({
+      rule: 'unknown-task-type',
+      detail: `${where} has type "${task.type}" which is not one of command | agent.`,
+    });
+  }
+
+  const isAgentTask = task.type === 'agent';
+
+  // Rule: type: agent and command are mutually exclusive (ADR-0023 decision 3).
+  if (isAgentTask && task.command !== undefined && task.command !== null) {
+    errors.push({
+      rule: 'agent-with-command',
+      detail: `${where} is a type: agent task but also declares a command — command and type: agent are mutually exclusive.`,
+    });
+  }
+
+  // Rule: command must be a non-empty string for command tasks. The executor maps
+  // command -> name and runs it verbatim; an empty command produces no work and
+  // "passes". Agent tasks are exempt — they run a prompt instead (checked below).
+  if (!isAgentTask && (task.command === undefined || task.command === null || task.command.trim() === '')) {
     errors.push({
       rule: 'empty-command',
       detail: `${where} has an empty or missing command. Every task must run a real shell command (even LLM tasks — the command produces the stdout the LLM judges).`,
+    });
+  }
+
+  // Rule: agent tasks require a prompt — never burn tokens on an empty conversation.
+  if (isAgentTask && (!task.prompt || task.prompt.trim() === '')) {
+    errors.push({
+      rule: 'missing-agent-prompt',
+      detail: `${where} is a type: agent task without a prompt. The prompt is what the agent executes — it is required.`,
+    });
+  }
+
+  // Rule: workspace.type must be local | docker (ADR-0023 decision 5).
+  if (task.workspace && task.workspace.type !== 'local' && task.workspace.type !== 'docker') {
+    errors.push({
+      rule: 'unknown-workspace-type',
+      detail: `${where} has workspace.type "${task.workspace.type}" which is not one of local | docker.`,
     });
   }
 

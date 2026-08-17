@@ -120,7 +120,7 @@ export const RecoveryStrategy = {
     for (let attempt = 1; attempt <= heal.maxRetries; attempt++) {
       const healResult = await ctx.runCommand(heal.healCommand, phase.timeoutMs);
       if (healResult.exitCode !== 0) continue;
-      const retry = await ctx.runCommand(phase.command, phase.timeoutMs);
+      const retry = await ctx.runCommand(phase.command ?? '', phase.timeoutMs);
       if (retry.exitCode === 0) {
         result.status = "pass";
         result.exitCode = retry.exitCode;

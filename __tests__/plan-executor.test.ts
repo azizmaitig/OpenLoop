@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 // These imports will FAIL — ../src/plan-executor.js does not exist yet
 // PlanYamlTask and PlanYamlDoc are not yet defined in types.ts
 // These tests are structural stubs describing the expected API before implementation
-import { parsePlanYaml, dumpPlanYaml, expandComposites } from "../src/plan-executor.js";
+import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop } from "../src/plan-executor.js";
 import type { PlanYamlTask, PlanYamlDoc, CompositeDef } from "../src/types.js";
 
 const FIXTURE_PATH = "__tests__/fixtures/sample.plan.yaml";
@@ -201,5 +201,75 @@ describe("expandComposites", () => {
     expect(result[0].command).toBe("echo setup");
     expect(result[1].id).toBe("build-all");
     expect(result[1].command).toBe("echo compile && echo test");
+  });
+});
+
+describe("agent task schema gate in beforeLoop (v10, ADR-0023)", () => {
+  const validAgentPlan = `planName: agent-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    agent: openhands
+    workspace:
+      type: docker
+  - id: verify
+    command: bun test
+`;
+
+  test("loads a valid agent plan and maps the agent task to a PhaseDef", async () => {
+    const phases = await beforeLoop(validAgentPlan);
+    const agentPhase = phases.find((p) => p.name === "analyze")!;
+    expect(agentPhase).toBeDefined();
+    expect(agentPhase.type).toBe("agent");
+    expect(agentPhase.prompt).toBe("analyze the auth module");
+    expect(agentPhase.workspace).toEqual({ type: "docker" });
+    expect(agentPhase.command).toBeUndefined();
+  });
+
+  test("rejects a plan whose agent task combines type with command", async () => {
+    const bad = `planName: bad-agent
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    command: echo hi
+    prompt: analyze the auth module
+  - id: verify
+    command: bun test
+`;
+    expect(beforeLoop(bad)).rejects.toThrow(/agent-with-command/);
+  });
+
+  test("rejects a plan whose agent task lacks a prompt", async () => {
+    const bad = `planName: bad-agent
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+  - id: verify
+    command: bun test
+`;
+    expect(beforeLoop(bad)).rejects.toThrow(/missing-agent-prompt/);
+  });
+
+  test("rejects a plan with an unknown workspace.type", async () => {
+    const bad = `planName: bad-agent
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    workspace:
+      type: vm
+  - id: verify
+    command: bun test
+`;
+    expect(beforeLoop(bad)).rejects.toThrow(/unknown-workspace-type/);
   });
 });

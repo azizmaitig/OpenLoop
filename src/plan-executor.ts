@@ -7,6 +7,7 @@ import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, Loop
 import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
 import { checkPlanAgainstConstitution } from './constitution.js';
+import { validatePlanSchema } from './plan-schema.js';
 
 let activePlanPath = '';
 let activePlanDoc: PlanYamlDoc | null = null;
@@ -89,6 +90,15 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
     throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
   }
 
+  // Schema pre-flight gate — field contract (v10: agent task rules included).
+  const schemaErrors = validatePlanSchema(doc);
+  if (schemaErrors.length > 0) {
+    const lines = schemaErrors
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`Plan schema violation in ${planPath}:\n${lines}`);
+  }
+
   activePlanDoc = doc;
 
   let tasks = doc.tasks;
@@ -114,7 +124,12 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
 function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
   return tasks.map((task) => ({
     name: task.id,
+    type: task.type,
     command: task.command,
+    prompt: task.prompt,
+    agent: task.agent,
+    model: task.model,
+    workspace: task.workspace,
     timeoutMs: task.timeoutMs ?? 30000,
     expectedExitCode: 0,
     healCommand: task.healCommand,
