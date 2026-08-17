@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-// These imports will FAIL — ../src/plan-executor.js does not exist yet
-// PlanYamlTask and PlanYamlDoc are not yet defined in types.ts
-// These tests are structural stubs describing the expected API before implementation
 import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop } from "../src/plan-executor.js";
 import type { PlanYamlTask, PlanYamlDoc, CompositeDef } from "../src/types.js";
 

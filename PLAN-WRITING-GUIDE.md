@@ -26,7 +26,7 @@ The validator (`src/plan-schema.ts`, `validatePlanSchema`) catches:
 
 | Rule | What it catches |
 |------|-----------------|
-| `empty-command` | A task with no `command` (or whitespace only). The executor runs nothing and the phase "passes" — the #1 silent no-op. |
+| `empty-command` | A task with no `command` (or whitespace only) — **except `type: agent` tasks**, which execute a `prompt` instead (see §3B). The executor runs nothing and the phase "passes" — the #1 silent no-op. |
 | `duplicate-id` | Two tasks share an `id`; breaks resume + checkpoint keying. |
 | `unknown-llm-provider` | `llm.provider` isn't `openai` / `anthropic` / `opencode`; executor would silently default to `openai`. |
 | `missing-llm-prompt` | An `llm` block with no `prompt` (must request `{passed, reason, confidence}`). |
@@ -66,6 +66,10 @@ So a task that only needs an LLM decision still needs a real `command` (often a 
 read step whose output the LLM judges). Do not leave `command` empty or pointing at a
 dummy — point it at the step whose output the LLM should assess.
 
+The one exception is `type: agent` tasks (§3B): they carry a required `prompt` instead
+of a `command` and hand the whole task to an agent backend. That is the only task kind
+that does not run a shell command.
+
 At the end (`afterLoop`) the executor writes `status`, `durationMs`, `completedAt` back
 into your YAML and emits a `-report.md` from the LLM phase. **You do not hand-write those
 fields** — they are machine-owned. (Existing plans that contain them were produced by a run.)
@@ -102,7 +106,12 @@ That is the entire contract. `planName` + a list of tasks, each with a unique `i
 |---|---|---|---|
 | `planName` | yes | — | Unique kebab-case name. Missing → executor throws. |
 | `tasks[].id` | yes | — | Unique. Becomes the phase name. Duplicates break resume. |
-| `tasks[].command` | yes | — | Shell command. **Must exit 0.** Always executed, even with `llm`. |
+| `tasks[].command` | yes* | — | Shell command. **Must exit 0.** Always executed, even with `llm`. *Not allowed on `type: agent` tasks — those carry `prompt` instead (§3B). |
+| `tasks[].type` | no | `command` | Task-kind discriminator: `command` (default) \| `agent`. `agent` = executed by an agent backend, not a shell (§3B). |
+| `tasks[].prompt` | no* | — | *Required when `type: agent`. The instruction handed to the agent backend — what the agent executes. |
+| `tasks[].agent` | no | `openhands` | Agent backend name (`openhands` today; ACP later). |
+| `tasks[].model` | no | (server defaults) | Per-task model override `{ provider, model }`. Overrides the Agent Server's server-level LLM defaults for this conversation. |
+| `tasks[].workspace` | no | `local` | `{ type: local \| docker }`. `local` = loop working directory; `docker` = sandboxed container (`/projects` mount) for untrusted work. |
 | `tasks[].timeoutMs` | no | `30000` | Bumps to `120000` for builds / installs / anything slow. |
 | `tasks[].llm.provider` | no | `openai` | `openai` \| `anthropic` \| `opencode`. |
 | `tasks[].llm.prompt` | no* | `''` | *Required if `llm` present. Must ask for `passed`/`reason`/`confidence`. |
@@ -231,6 +240,43 @@ the sibling is aborted via `AbortController` and the layer fails immediately.
 - If **no task** has `dependsOn`, phases run sequentially as before.
 - Phases with `dependsOn: []` (explicitly empty) are treated as having no
   dependencies and can group with other independent phases in layer 0.
+
+---
+
+## 3B. Agent tasks (`type: agent`)
+
+v10 adds a second task kind: **agent tasks** run by an agent backend (OpenHands Agent
+Server, ADR-0023) instead of a shell command. They are opt-in per task and governed by
+the same L1/L2 human gates as everything else.
+
+```yaml
+tasks:
+  - id: analyze-auth
+    type: agent            # REQUIRED — the task-kind discriminator
+    prompt: >-             # REQUIRED — the instruction the agent executes
+      Analyze the auth module and report security issues. Read the code, plan,
+      edit if needed, run tests.
+    agent: openhands       # optional — backend name (openhands today, ACP later)
+    model:                 # optional — per-task model override
+      provider: ollama
+      model: qwen2.5-coder
+    workspace:             # optional — local (default) | docker
+      type: docker
+    timeoutMs: 120000      # optional — same as command tasks
+```
+
+**Rules (all enforced at parse time by the schema validator):**
+
+- `type: agent` is **mutually exclusive** with `command` — both present → `agent-with-command` error. Agent tasks execute a `prompt`, not a shell command.
+- `prompt` is **required** on agent tasks — missing → `missing-agent-prompt` error.
+- `workspace.type` must be `local` or `docker` — anything else → `unknown-workspace-type` error. `local` (default) runs the agent in the loop's working directory; `docker` runs it in a sandboxed container for untrusted work.
+- `model: { provider, model }` overrides the Agent Server's server-level LLM defaults for that conversation.
+- The existing `llm:` block is untouched — it stays advisory grading, orthogonal to execution. The normal `verify` phase gates agent results like any other task.
+- Agent tasks mix freely with command tasks in one DAG — `dependsOn` is kind-agnostic.
+
+> **v10 note:** the contract layer (schema + config) ships first; execution is wired by
+> the sidecar executor (`src/agent-server.ts`, `src/agent-executor.ts`). Until then an
+> agent task fails loudly with "not executable yet" rather than silently passing.
 
 ## 4. Reusable composite sequences (Feature B)
 
