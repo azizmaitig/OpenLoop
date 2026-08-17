@@ -17,6 +17,7 @@
 
 import { evaluatePhase } from './evaluate.js';
 import { validatePhase } from './validator.js';
+import { executeAgentPhase } from './agent-executor.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -182,6 +183,7 @@ function makeCancelledResult(durationMs: number): PhaseResult {
  * Advisory/fail-open: never hard-fails the phase; records result.validation.
  */
 async function runValidatorGate(
+  deps: ExecutionDeps,
   phase: PhaseDef,
   result: PhaseResult,
   signal?: AbortSignal,
@@ -206,7 +208,9 @@ async function runValidatorGate(
   let lastJudgment = initial;
   for (; retriesUsed < maxRetries; retriesUsed++) {
     if (signal?.aborted) break;
-    const rerun = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+    const rerun = phase.type === 'agent'
+      ? await executeAgentPhase(deps.config, phase, phase.timeoutMs, signal)
+      : await executeShellCommand(phase.command, phase.timeoutMs, signal);
     if (rerun.status !== 'pass') {
       result = rerun; // real command failure -> propagate
       break;
@@ -264,7 +268,9 @@ async function runSinglePhase(
     order,
   }));
 
-  let result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+  let result = phase.type === 'agent'
+    ? await executeAgentPhase(deps.config, phase, phase.timeoutMs, signal)
+    : await executeShellCommand(phase.command, phase.timeoutMs, signal);
 
   // Apply output bounds — tail-cap stdout/stderr in memory, offload large output to disk
   const runName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName;
@@ -313,7 +319,7 @@ async function runSinglePhase(
 
   // ── Validator gate (Conductor-style semantic output validation) ──
   if (phase.validator) {
-    result = await runValidatorGate(phase, result, signal);
+    result = await runValidatorGate(deps, phase, result, signal);
   }
 
   const totalPhaseMs = Date.now() - phaseStart;

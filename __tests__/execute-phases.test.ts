@@ -1,6 +1,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import type { ExecutionDeps } from "../src/execute-phases.js";
 import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.js";
+import { startAgentStub } from "./helpers/agent-stub.js";
 
 import { executePhaseGroup } from "../src/execute-phases.js";
 
@@ -82,7 +83,7 @@ describe("executePhaseGroup", () => {
     expect(result.allPassed).toBe(true);
   });
 
-  test("agent phase without a command errors loudly — never silently passes", async () => {
+  test("agent phase with no reachable server errors loudly — never silently passes", async () => {
     const deps = makeDeps({
       config: makeConfig([
         makePhase({ name: "agent-task", type: "agent", prompt: "do the thing", command: undefined }),
@@ -95,7 +96,72 @@ describe("executePhaseGroup", () => {
     expect(result.allPassed).toBe(false);
     const pr = result.state.phaseResults["agent-task"]!;
     expect(pr.status).toBe("error");
-    expect(pr.stderr).toContain("agent");
+    expect(pr.stderr).toContain("Agent Server");
+  });
+
+  test("agent phase executes through the loop against a stub — pass (AC1/AC2)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      const deps = makeDeps({
+        config: {
+          ...makeConfig([
+            makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
+          ]),
+          agentServer: { manage: true, url: stub.url, port: 8000 },
+        },
+      });
+      const result = await executePhaseGroup(deps, makeState(), 1);
+
+      expect(result.allPassed).toBe(true);
+      const pr = result.state.phaseResults["analyze"]!;
+      expect(pr.status).toBe("pass");
+      expect(pr.exitCode).toBe(0);
+      expect(pr.stdout).toBe("agent reply to: analyze the auth module");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("failing agent conversation fails the phase group (AC2)", async () => {
+    const stub = startAgentStub({ terminalStatus: "failed" });
+    try {
+      const deps = makeDeps({
+        config: {
+          ...makeConfig([
+            makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
+          ]),
+          agentServer: { manage: true, url: stub.url, port: 8000 },
+        },
+      });
+      const result = await executePhaseGroup(deps, makeState(), 1);
+
+      expect(result.allPassed).toBe(false);
+      expect(result.state.phaseResults["analyze"]!.status).toBe("fail");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("verify phase gates an agent task result like any command task (AC4)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      const deps = makeDeps({
+        config: {
+          ...makeConfig([
+            makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
+            makePhase({ name: "verify", command: "echo verified", dependsOn: ["analyze"] }),
+          ]),
+          agentServer: { manage: true, url: stub.url, port: 8000 },
+        },
+      });
+      const result = await executePhaseGroup(deps, makeState(), 1);
+
+      expect(result.allPassed).toBe(true);
+      expect(result.state.phaseResults["analyze"]!.status).toBe("pass");
+      expect(result.state.phaseResults["verify"]!.status).toBe("pass");
+    } finally {
+      stub.close();
+    }
   });
 
   test("executes all phases in order", async () => {
