@@ -30,6 +30,19 @@ import { OUTPUT_DIR, writeBothStates, getCurrentState, setCurrentState } from '.
 import { StateMachine } from './src/state-machine.js';
 import { applyTransition } from './src/transition.js';
 import { runLoop } from './src/loop-runner.js';
+import { DEFAULT_AGENT_SERVER_CONFIG, agentServerFromEnv } from './src/config.js';
+
+/** Merge LOOP_AGENT_SERVER_* env overrides into a loop config (CLI-facing sidecar surface). */
+function withAgentServerEnv(config: LoopConfig): LoopConfig {
+  return {
+    ...config,
+    agentServer: {
+      ...DEFAULT_AGENT_SERVER_CONFIG,
+      ...(config.agentServer ?? {}),
+      ...agentServerFromEnv(),
+    },
+  };
+}
 
 // ── Crash safety: unhandled errors should not leave state stuck in 'run' ──
 
@@ -111,7 +124,7 @@ async function main(): Promise<void> {
     // Resolve plan config for in-process execution (live WS events)
     let planConfig: LoopConfig | undefined;
     if (parsed.planPath && !parsed.cron) {
-      planConfig = resolvePhases(parsed.taskName, parsed.phaseNames);
+      planConfig = withAgentServerEnv(resolvePhases(parsed.taskName, parsed.phaseNames));
       planConfig = {
         ...planConfig,
         planPath: parsed.planPath,
@@ -172,7 +185,7 @@ async function main(): Promise<void> {
   }
 
   // Resolve phase config from built-in tasks
-  let config = resolvePhases(parsed.taskName, parsed.phaseNames);
+  let config = withAgentServerEnv(resolvePhases(parsed.taskName, parsed.phaseNames));
 
   // Apply CLI overrides
   if (parsed.maxIterations !== undefined) {

@@ -6,6 +6,50 @@ export const DEFAULT_AGENT_SERVER_CONFIG: AgentServerConfig = {
   port: 8000,
 };
 
+/**
+ * Read `agentServer.*` overrides from `LOOP_AGENT_SERVER_*` env vars —
+ * the CLI-facing surface for sidecar + LLM-defaults configuration
+ * (the guide documents agentServer as loop-level config, not plan YAML).
+ */
+export function agentServerFromEnv(): Partial<AgentServerConfig> {
+  const out: Partial<AgentServerConfig> = {};
+  const num = (v: string | undefined): number | undefined => {
+    if (v === undefined || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  if (process.env.LOOP_AGENT_SERVER_MANAGE !== undefined) {
+    const v = process.env.LOOP_AGENT_SERVER_MANAGE.toLowerCase();
+    out.manage = v !== 'false' && v !== '0' && v !== '';
+  }
+  if (process.env.LOOP_AGENT_SERVER_URL !== undefined) {
+    out.url = process.env.LOOP_AGENT_SERVER_URL;
+  }
+  const port = num(process.env.LOOP_AGENT_SERVER_PORT);
+  if (port !== undefined) out.port = port;
+  const readyTimeoutMs = num(process.env.LOOP_AGENT_SERVER_READY_TIMEOUT_MS);
+  if (readyTimeoutMs !== undefined) out.readyTimeoutMs = readyTimeoutMs;
+  const maxRestarts = num(process.env.LOOP_AGENT_SERVER_MAX_RESTARTS);
+  if (maxRestarts !== undefined) out.maxRestarts = maxRestarts;
+
+  const defaults: NonNullable<AgentServerConfig['defaults']> = {};
+  if (process.env.LOOP_AGENT_SERVER_DEFAULTS_PROVIDER !== undefined) {
+    defaults.provider = process.env.LOOP_AGENT_SERVER_DEFAULTS_PROVIDER;
+  }
+  if (process.env.LOOP_AGENT_SERVER_DEFAULTS_MODEL !== undefined) {
+    defaults.model = process.env.LOOP_AGENT_SERVER_DEFAULTS_MODEL;
+  }
+  if (process.env.LOOP_AGENT_SERVER_DEFAULTS_BASE_URL !== undefined) {
+    defaults.baseUrl = process.env.LOOP_AGENT_SERVER_DEFAULTS_BASE_URL;
+  }
+  if (process.env.LOOP_AGENT_SERVER_DEFAULTS_API_KEY !== undefined) {
+    defaults.apiKey = process.env.LOOP_AGENT_SERVER_DEFAULTS_API_KEY;
+  }
+  if (Object.keys(defaults).length > 0) out.defaults = defaults;
+
+  return out;
+}
+
 export const DEFAULT_CONFIG: LoopConfig = {
   maxIterations: 3,
   phaseTimeoutMs: 60000,

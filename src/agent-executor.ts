@@ -11,7 +11,7 @@
  * (src/agent-server.ts).
  */
 
-import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
+import type { LoopConfig, PhaseDef, PhaseResult, AgentTaskModel } from './types.js';
 import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
 import { getAgentServerManager, createAgentServerManager } from './agent-server.js';
 import type { AgentServerManager } from './agent-server.js';
@@ -32,7 +32,39 @@ const TERMINAL_STATUSES: ReadonlySet<AgentConversationStatus> = new Set([
   'failed',
   'aborted',
   'stopped',
+  'error',
 ]);
+
+/**
+ * Resolve the "provider/model" string the server's LiteLLM accepts.
+ * Per-task `model:` wins; otherwise agentServer.defaults supplies it —
+ * as a full "provider/model" string or a provider+model pair.
+ */
+function resolveLlmModel(
+  phaseModel: AgentTaskModel | undefined,
+  defaults: { provider?: string; model?: string } | undefined,
+): string | undefined {
+  if (phaseModel) return `${phaseModel.provider}/${phaseModel.model}`;
+  if (!defaults) return undefined;
+  if (defaults.model?.includes('/')) return defaults.model;
+  if (defaults.provider && defaults.model) return `${defaults.provider}/${defaults.model}`;
+  return defaults.model ?? undefined;
+}
+
+/** Best-effort final agent text; empty when the endpoint is unavailable. */
+async function finalResponseText(
+  client: AgentServerClient,
+  conversationId: string,
+): Promise<string> {
+  try {
+    return await client.getAgentFinalResponse(conversationId);
+  } catch (err) {
+    console.error(
+      `[agent-executor] agent_final_response unavailable (falling back to events): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return '';
+  }
+}
 
 function makeErrorResult(stderr: string, durationMs: number): PhaseResult {
   return { status: 'error', exitCode: -1, stdout: '', stderr, durationMs, evidencePath: '' };
@@ -78,6 +110,14 @@ export async function executeAgentPhase(
   // control — the loop's command guard cannot see agent actions. Prepend so a
   // trailing "ignore everything above" cannot neutralize it.
   const effectivePrompt = [buildDenylistPromptInstruction(workingDir), phase.prompt.trim()].join('\n\n');
+  // LLM config (decision 6): per-task `model:` wins; agentServer.defaults
+  // supplies the endpoint (model/baseUrl/apiKey) the conversation runs on.
+  const defaults = config.agentServer?.defaults;
+  const model = resolveLlmModel(phase.model, defaults);
+  const llm: { model?: string; baseUrl?: string; apiKey?: string } | undefined =
+    model || defaults?.baseUrl || defaults?.apiKey
+      ? { model, baseUrl: defaults?.baseUrl, apiKey: defaults?.apiKey }
+      : undefined;
 
   // Local tasks share the uvx sidecar singleton (provided manager wins);
   // docker tasks ALWAYS provision their own containerized sidecar per task
@@ -96,14 +136,14 @@ export async function executeAgentPhase(
 
   try {
     client = await mgr.getClient(effectiveSignal);
+    // The prompt rides in `initial_message` at creation (verified server
+    // contract) — no separate send call needed.
     const conversation = await client.createConversation({
-      model: phase.model,
-      workspaceType: phase.workspace?.type,
       workingDir,
+      prompt: effectivePrompt,
+      llm,
     });
     conversationId = conversation.id;
-
-    await client.sendMessage(conversationId, effectivePrompt);
 
     for (;;) {
       if (effectiveSignal.aborted) {
@@ -118,7 +158,8 @@ export async function executeAgentPhase(
       }
       const current = await client.getConversation(conversationId);
       if (TERMINAL_STATUSES.has(current.status)) {
-        return mapTerminalResult(current.status, current.events, Date.now() - startTime);
+        const finalResponse = await finalResponseText(client, conversationId);
+        return mapTerminalResult(current.status, current.events, finalResponse, Date.now() - startTime);
       }
       await sleep(AGENT_POLL_INTERVAL_MS);
     }
@@ -147,13 +188,18 @@ export async function executeAgentPhase(
 function mapTerminalResult(
   status: AgentConversationStatus,
   events: AgentEvent[],
+  finalResponse: string,
   durationMs: number,
 ): PhaseResult {
-  // stdout = last agent message; fall back to the last status event as an
-  // event summary when the agent never produced a message (ADR-0023 d4).
+  // stdout = the agent's final response (verified server endpoint); fall back
+  // to the last agent message / status event when it is unavailable (ADR-0023 d4).
   const reversed = [...events].reverse();
   const lastAgentMessage = reversed.find((e) => e.type === 'message' && e.source === 'agent');
-  const stdout = lastAgentMessage?.content ?? reversed.find((e) => e.type === 'status_changed')?.content ?? '';
+  const stdout =
+    finalResponse ||
+    lastAgentMessage?.content ||
+    reversed.find((e) => e.type === 'status_changed')?.content ||
+    '';
 
   if (status === 'finished') {
     return { status: 'pass', exitCode: 0, stdout, stderr: '', durationMs, evidencePath: '' };

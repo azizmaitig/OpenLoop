@@ -97,8 +97,20 @@ export interface AgentServerConfig {
   url: string;
   /** Port the sidecar listens on (spawn arg when manage: true). */
   port: number;
-  /** Server-level LLM defaults injected at spawn; per-task model blocks override. */
-  defaults?: { provider?: string; model?: string };
+  /** How long a freshly spawned sidecar has to become healthy, in ms (default 5000). */
+  readyTimeoutMs?: number;
+  /** Restart budget after the initial spawn (default 3). */
+  maxRestarts?: number;
+  /** Server-level LLM defaults supplied to every agent conversation; per-task model blocks override the model part. */
+  defaults?: {
+    provider?: string;
+    /** Model name — either a full "provider/model" string or the model half of the provider pair. */
+    model?: string;
+    /** OpenAI-compatible base URL (e.g. an opencode compat shim). */
+    baseUrl?: string;
+    /** API key — LiteLLM requires a non-empty value even for keyless gateways. */
+    apiKey?: string;
+  };
 }
 
 export type OutcomeStatus = 'pass' | 'fail' | 'error';

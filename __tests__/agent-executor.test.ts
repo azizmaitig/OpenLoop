@@ -45,7 +45,7 @@ function sleep(ms: number): Promise<void> {
 // ── executeAgentPhase ─────────────────────────────────────────────────────────
 
 describe("executeAgentPhase", () => {
-  test("finished conversation → pass, stdout = last agent message", async () => {
+  test("finished conversation → pass, stdout = agent final response", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
@@ -124,28 +124,25 @@ describe("executeAgentPhase", () => {
     }
   });
 
-  test("sends the phase prompt as the conversation message", async () => {
+  test("carries the phase prompt in the create payload's initial_message", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
         makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase({ prompt: "Do the thing now." }),
       );
-      const id = stub.createdId;
-      expect(id).toBeDefined();
-      const sent = stub.calls.find(
-        (c) => c.method === "POST" && c.path === `/api/conversations/${id}/events`,
-      );
-      const content = (sent?.body as { content?: string })?.content ?? "";
-      expect(content).toContain("Do the thing now.");
-      expect(content).toContain(".env"); // denylist instruction injected (trust tier)
-      expect(content).toContain("auth/");
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      const text = ((create?.body as { initial_message?: { content?: Array<{ text?: string }> } })
+        ?.initial_message?.content?.[0]?.text) ?? "";
+      expect(text).toContain("Do the thing now.");
+      expect(text).toContain(".env"); // denylist instruction injected (trust tier)
+      expect(text).toContain("auth/");
     } finally {
       stub.close();
     }
   });
 
-  test("passes model + workspace type to conversation creation", async () => {
+  test("creates with the real payload shape: workspace + agent.llm + initial_message", async () => {
     const { runner, spawned } = makeFakeDockerRunner();
     try {
       const result = await executeAgentPhase(
@@ -163,11 +160,16 @@ describe("executeAgentPhase", () => {
       const create = spawned[0]!.stub.calls.find(
         (c) => c.method === "POST" && c.path === "/api/conversations",
       );
-      expect(create?.body).toEqual({
-        model: { provider: "ollama", model: "qwen2.5-coder" },
-        workspaceType: "docker",
-        workingDir: "/workspace",
-      });
+      const body = create?.body as {
+        workspace?: { working_dir?: string };
+        agent?: { llm?: { model?: string } };
+        initial_message?: { role?: string; content?: Array<{ type?: string; text?: string }> };
+      };
+      expect(body.workspace).toEqual({ working_dir: "/workspace" });
+      expect(body.agent?.llm?.model).toBe("ollama/qwen2.5-coder");
+      expect(body.initial_message?.role).toBe("user");
+      expect(body.initial_message?.content?.[0]?.type).toBe("text");
+      expect(body.initial_message?.content?.[0]?.text).toContain("Analyze the auth module.");
     } finally {
       for (const c of spawned) c.stub.close();
     }
@@ -226,7 +228,7 @@ describe("executeAgentPhase", () => {
         makeAgentPhase({ workspace: { type: "local" } }),
       );
       const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
-      expect((create?.body as { workingDir?: string }).workingDir).toBe(process.cwd());
+      expect(((create?.body as { workspace?: { working_dir?: string } }).workspace)?.working_dir).toBe(process.cwd());
     } finally {
       stub.close();
     }
@@ -240,7 +242,7 @@ describe("executeAgentPhase", () => {
         makeAgentPhase({ workspace: undefined }),
       );
       const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
-      expect((create?.body as { workingDir?: string }).workingDir).toBe(process.cwd());
+      expect(((create?.body as { workspace?: { working_dir?: string } }).workspace)?.working_dir).toBe(process.cwd());
     } finally {
       stub.close();
     }
@@ -261,29 +263,138 @@ describe("executeAgentPhase", () => {
       const create = spawned[0]!.stub.calls.find(
         (c) => c.method === "POST" && c.path === "/api/conversations",
       );
-      expect((create?.body as { workingDir?: string }).workingDir).toBe("/workspace");
+      expect(((create?.body as { workspace?: { working_dir?: string } }).workspace)?.working_dir).toBe("/workspace");
     } finally {
       for (const c of spawned) c.stub.close();
     }
   });
 
-  test("denylist instruction is injected into the sent prompt (AC3)", async () => {
+  test("agentServer.defaults wire model/baseUrl/apiKey into agent.llm (snake_case wire format)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({
+          agentServer: {
+            manage: false,
+            url: stub.url,
+            port: 0,
+            defaults: {
+              model: "opencode/deepseek-v4-flash-free",
+              baseUrl: "http://127.0.0.1:4097",
+              apiKey: "sk-none",
+            },
+          },
+        }),
+        makeAgentPhase(),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect((create?.body as { agent?: { llm?: unknown } }).agent?.llm).toEqual({
+        model: "opencode/deepseek-v4-flash-free",
+        base_url: "http://127.0.0.1:4097",
+        api_key: "sk-none",
+      });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("per-task model overrides agentServer.defaults model", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({
+          agentServer: {
+            manage: false,
+            url: stub.url,
+            port: 0,
+            defaults: { model: "opencode/deepseek-v4-flash-free", baseUrl: "http://127.0.0.1:4097" },
+          },
+        }),
+        makeAgentPhase({ model: { provider: "ollama", model: "qwen2.5-coder" } }),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      const llm = (create?.body as { agent?: { llm?: { model?: string; base_url?: string } } }).agent?.llm;
+      expect(llm?.model).toBe("ollama/qwen2.5-coder");
+      expect(llm?.base_url).toBe("http://127.0.0.1:4097"); // defaults still supply the endpoint
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("no llm config anywhere → no agent block in the create payload", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ model: undefined }),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect((create?.body as { agent?: unknown }).agent).toBeUndefined();
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("error terminal status → fail with the status in stderr", async () => {
+    const stub = startAgentStub({ terminalStatus: "error" });
+    try {
+      const result = await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase(),
+      );
+      expect(result.status).toBe("fail");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("error");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("unavailable final-response endpoint → stdout falls back to conversation events", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished", failFinalResponse: true });
+    try {
+      const result = await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase(),
+      );
+      expect(result.status).toBe("pass");
+      expect(result.stdout).toContain("Analyze the auth module."); // event echo, not the final-response text
+      expect(result.stderr).toBe("");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("legacy server responses (status instead of execution_status) still map to a terminal result", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished", legacyStatus: true });
+    try {
+      const result = await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase(),
+      );
+      expect(result.status).toBe("pass");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Analyze the auth module.");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("denylist instruction is injected into the initial_message (AC3)", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
         makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase({ prompt: "Analyze the auth module." }),
       );
-      const id = stub.createdId;
-      const sent = stub.calls.find(
-        (c) => c.method === "POST" && c.path === `/api/conversations/${id}/events`,
-      );
-      const content = (sent?.body as { content?: string })?.content ?? "";
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      const text = ((create?.body as { initial_message?: { content?: Array<{ text?: string }> } })
+        ?.initial_message?.content?.[0]?.text) ?? "";
       for (const token of [".env", "auth/", "payments/", "secrets/", "credentials/"]) {
-        expect(content).toContain(token);
+        expect(text).toContain(token);
       }
-      expect(content).toContain("Analyze the auth module.");
-      expect(content).toContain("SAFETY");
+      expect(text).toContain("Analyze the auth module.");
+      expect(text).toContain("SAFETY");
     } finally {
       stub.close();
     }

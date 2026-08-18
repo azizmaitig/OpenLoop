@@ -1,18 +1,20 @@
 /**
  * agent-server-client.ts — minimal REST client for the Agent Server conversation API.
  *
- * T2 contract (stub-defined, refined against the real OpenHands Agent Server in T3):
- *   POST   /api/conversations                → create ({ model?, workspaceType? }) → conversation
- *   POST   /api/conversations/{id}/events    → send a message ({ content })
- *   GET    /api/conversations/{id}           → poll (status + events)
- *   DELETE /api/conversations/{id}           → cleanup
+ * Contract verified against the REAL OpenHands Agent Server (smoke test, 2026-08-18):
+ *   POST   /api/conversations                       → create ({ workspace, agent.llm, initial_message })
+ *   POST   /api/conversations/{id}/events           → send a message ({ role, content: [TextContent] })
+ *   GET    /api/conversations/{id}                  → poll (execution_status + events)
+ *   GET    /api/conversations/{id}/agent_final_response → final agent text (stdout source)
+ *   DELETE /api/conversations/{id}                  → cleanup
+ *   GET    /health                                  → health (NOT /api/health)
  *
  * Event variants are a discriminated union server-side (research doc: clients must
  * skip unknown variants) — the client passes events through opaquely and lets the
  * executor pick what it needs.
  */
 
-import type { AgentTaskModel, AgentTaskWorkspace } from './types.js';
+import type { AgentTaskModel } from './types.js';
 
 /** Conversation lifecycle statuses from the Agent Server. */
 export type AgentConversationStatus =
@@ -21,7 +23,8 @@ export type AgentConversationStatus =
   | 'finished'
   | 'failed'
   | 'aborted'
-  | 'stopped';
+  | 'stopped'
+  | 'error';
 
 /** One conversation event. Unknown variants are passed through untouched. */
 export interface AgentEvent {
@@ -36,19 +39,29 @@ export interface AgentConversation {
   events: AgentEvent[];
 }
 
+/** LLM config handed to the server's agent.llm (LiteLLM-backed). */
+export interface AgentLlmConfig {
+  /** "provider/model" string the server's LiteLLM resolves. */
+  model?: string;
+  /** OpenAI-compatible base URL (e.g. the opencode compat shim). */
+  baseUrl?: string;
+  /** API key — LiteLLM requires a non-empty value even for keyless gateways. */
+  apiKey?: string;
+}
+
 export interface CreateConversationParams {
-  /** Per-task model override (ADR-0023 decision 6). */
-  model?: AgentTaskModel;
-  /** Workspace kind: local (default) | docker (ADR-0023 decision 5). */
-  workspaceType?: AgentTaskWorkspace['type'];
-  /** Directory the agent acts in: loop cwd for local, /projects for docker (ADR-0023 decision 5). */
-  workingDir?: string;
+  /** Directory the agent acts in: loop cwd for local, /workspace for docker. */
+  workingDir: string;
+  /** Initial user message — carries the denylist instruction + task prompt. */
+  prompt: string;
+  /** LLM config (per-task model override merged with agentServer.defaults). */
+  llm?: AgentLlmConfig;
 }
 
 export interface AgentServerClient {
-  createConversation(params?: CreateConversationParams): Promise<AgentConversation>;
-  sendMessage(conversationId: string, message: string): Promise<void>;
+  createConversation(params: CreateConversationParams): Promise<AgentConversation>;
   getConversation(conversationId: string): Promise<AgentConversation>;
+  getAgentFinalResponse(conversationId: string): Promise<string>;
   deleteConversation(conversationId: string): Promise<void>;
   checkHealth(): Promise<boolean>;
 }
@@ -86,23 +99,63 @@ export function createAgentServerClient(
   }
 
   return {
-    createConversation(params) {
-      return request<AgentConversation>('POST', conversationUrl(), params);
+    async createConversation(params) {
+      const body: Record<string, unknown> = {
+        workspace: { working_dir: params.workingDir },
+        initial_message: {
+          role: 'user',
+          content: [{ type: 'text', text: params.prompt }],
+        },
+      };
+      if (params.llm && (params.llm.model || params.llm.baseUrl || params.llm.apiKey)) {
+        // The server's LLM model is snake_case (pydantic) — camelCase keys are
+        // silently ignored, which would drop the endpoint config entirely.
+        body.agent = {
+          llm: {
+            ...(params.llm.model ? { model: params.llm.model } : {}),
+            ...(params.llm.baseUrl ? { base_url: params.llm.baseUrl } : {}),
+            ...(params.llm.apiKey ? { api_key: params.llm.apiKey } : {}),
+          },
+        };
+      }
+      const res = await request<{
+        id: string;
+        execution_status?: AgentConversationStatus;
+        status?: AgentConversationStatus;
+        events?: AgentEvent[];
+      }>('POST', conversationUrl(), body);
+      return {
+        id: res.id,
+        status: res.execution_status ?? res.status ?? 'running',
+        events: res.events ?? [],
+      };
     },
-    async sendMessage(conversationId, message) {
-      await request<{ ok: boolean }>('POST', `${conversationUrl(conversationId)}/events`, {
-        content: message,
-      });
+    async getConversation(conversationId) {
+      const res = await request<{
+        id: string;
+        execution_status?: AgentConversationStatus;
+        status?: AgentConversationStatus;
+        events?: AgentEvent[];
+      }>('GET', conversationUrl(conversationId));
+      return {
+        id: res.id,
+        status: res.execution_status ?? res.status ?? 'running',
+        events: res.events ?? [],
+      };
     },
-    getConversation(conversationId) {
-      return request<AgentConversation>('GET', conversationUrl(conversationId));
+    async getAgentFinalResponse(conversationId) {
+      const res = await request<{ response?: string }>(
+        'GET',
+        `${conversationUrl(conversationId)}/agent_final_response`,
+      );
+      return res.response ?? '';
     },
     async deleteConversation(conversationId) {
       await request<{ ok: boolean }>('DELETE', conversationUrl(conversationId));
     },
     async checkHealth() {
       try {
-        const res = await fetch(`${baseUrl}/api/health`, {
+        const res = await fetch(`${baseUrl}/health`, {
           signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
         });
         return res.ok;

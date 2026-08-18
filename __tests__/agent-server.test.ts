@@ -1,9 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopConfig } from "../src/types.js";
-import { createAgentServerManager } from "../src/agent-server.js";
+import { buildAgentServerSpawnCommand, createAgentServerManager } from "../src/agent-server.js";
 import type { AgentServerManager, AgentServerProcess, AgentServerSpawner } from "../src/agent-server.js";
 import { startAgentStub } from "./helpers/agent-stub.js";
 import type { StubServer } from "./helpers/agent-stub.js";
+
+// ── spawn command (real console script — smoke-test finding #1) ──────────────
+
+describe("buildAgentServerSpawnCommand", () => {
+  test("uses the package's real console script (agent-server), not the package name", () => {
+    expect(buildAgentServerSpawnCommand(8000, "win32")).toEqual([
+      "uvx", "--from", "openhands-agent-server", "agent-server.exe",
+      "--host", "127.0.0.1", "--port", "8000",
+    ]);
+    expect(buildAgentServerSpawnCommand(8000, "linux")).toEqual([
+      "uvx", "--from", "openhands-agent-server", "agent-server",
+      "--host", "127.0.0.1", "--port", "8000",
+    ]);
+  });
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +134,20 @@ describe("createAgentServerManager (manage: true)", () => {
 
     await expect(mgr.getClient()).rejects.toThrow(/aborting/);
     expect(spawned.length).toBe(4); // 1 initial + 3 restarts (maxRestarts)
+  });
+
+  test("readiness options come from agentServer config (maxRestarts)", async () => {
+    const { spawner, spawned } = makeFakeSpawner([false, false, false]);
+    const mgr = createAgentServerManager(
+      makeConfig({
+        agentServer: { manage: true, url: "http://127.0.0.1:1", port: 1, maxRestarts: 1 },
+      }),
+      spawner,
+      { readyTimeoutMs: 50, pollIntervalMs: 10 }, // health poll stays fast; maxRestarts comes from config
+    );
+
+    await expect(mgr.getClient()).rejects.toThrow(/aborting/);
+    expect(spawned.length).toBe(2); // 1 initial + 1 restart (config maxRestarts, not the 3 default)
   });
 
   test("alive-but-unhealthy sidecar does not hang the restart loop", async () => {

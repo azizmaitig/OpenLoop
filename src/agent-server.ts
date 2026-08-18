@@ -52,15 +52,38 @@ const DEFAULT_OPTIONS: Required<AgentServerManagerOptions> = {
 /** How long to wait for a killed sidecar's stderr before giving up on the diagnostic. */
 const STDERR_READ_TIMEOUT_MS = 200;
 
+/**
+ * Build the uvx spawn argv for the Agent Server sidecar.
+ * The `openhands-agent-server` PyPI package exposes `agent-server` as its
+ * console script (`.exe` on Windows) — NOT the package name. Verified against
+ * the live package (smoke-test finding, 2026-08-18).
+ */
+export function buildAgentServerSpawnCommand(
+  port: number,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const exe = platform === 'win32' ? 'agent-server.exe' : 'agent-server';
+  return [
+    'uvx',
+    '--from',
+    'openhands-agent-server',
+    exe,
+    '--host',
+    '127.0.0.1',
+    '--port',
+    String(port),
+  ];
+}
+
 /** Production spawner: `uvx openhands-agent-server` on the configured port. */
 export const defaultSpawner: AgentServerSpawner = {
   async spawn(port: number): Promise<AgentServerProcess> {
     let proc: ReturnType<typeof Bun.spawn>;
     try {
-      proc = Bun.spawn(
-        ['uvx', 'openhands-agent-server', '--host', '127.0.0.1', '--port', String(port)],
-        { stdout: 'ignore', stderr: 'pipe' },
-      );
+      proc = Bun.spawn(buildAgentServerSpawnCommand(port), {
+        stdout: 'ignore',
+        stderr: 'pipe',
+      });
     } catch (err) {
       throw new Error(
         `could not start uvx: ${err instanceof Error ? err.message : String(err)}`,
@@ -90,6 +113,8 @@ function agentServerDefaults(config: LoopConfig) {
     manage: config.agentServer?.manage ?? DEFAULT_AGENT_SERVER_CONFIG.manage,
     url: config.agentServer?.url ?? DEFAULT_AGENT_SERVER_CONFIG.url,
     port: config.agentServer?.port ?? DEFAULT_AGENT_SERVER_CONFIG.port,
+    readyTimeoutMs: config.agentServer?.readyTimeoutMs,
+    maxRestarts: config.agentServer?.maxRestarts,
   };
 }
 
@@ -98,8 +123,15 @@ export function createAgentServerManager(
   spawner: AgentServerSpawner = defaultSpawner,
   options: AgentServerManagerOptions = {},
 ): AgentServerManager {
-  const opts: Required<AgentServerManagerOptions> = { ...DEFAULT_OPTIONS, ...options };
-  const { manage, url: baseUrl, port } = agentServerDefaults(config);
+  const cfg = agentServerDefaults(config);
+  // Config wins over the built-in defaults; explicit `options` (tests) win over config.
+  const opts: Required<AgentServerManagerOptions> = {
+    ...DEFAULT_OPTIONS,
+    ...(cfg.readyTimeoutMs !== undefined ? { readyTimeoutMs: cfg.readyTimeoutMs } : {}),
+    ...(cfg.maxRestarts !== undefined ? { maxRestarts: cfg.maxRestarts } : {}),
+    ...options,
+  };
+  const { manage, url: baseUrl, port } = cfg;
   const maxAttempts = opts.maxRestarts + 1;
 
   let process: AgentServerProcess | null = null;
@@ -185,8 +217,8 @@ export function createAgentServerManager(
 const managerCache = new Map<string, AgentServerManager>();
 
 function cacheKey(config: LoopConfig): string {
-  const { manage, url, port } = agentServerDefaults(config);
-  return `${manage}|${url}|${port}`;
+  const { manage, url, port, readyTimeoutMs, maxRestarts } = agentServerDefaults(config);
+  return `${manage}|${url}|${port}|${readyTimeoutMs ?? ''}|${maxRestarts ?? ''}`;
 }
 
 /**
