@@ -23,6 +23,9 @@ export const AGENT_POLL_INTERVAL_MS = 250;
 /** Fallback per-phase timeout when neither phase.timeoutMs nor config.phaseTimeoutMs is set. */
 const DEFAULT_PHASE_TIMEOUT_MS = 30000;
 
+/** Docker workspace mount (ADR-0023 decision 5). */
+const DOCKER_WORKSPACE_MOUNT = '/projects';
+
 /** Statuses that end the conversation (ADR-0023 decision 4: finished → pass, others → fail). */
 const TERMINAL_STATUSES: ReadonlySet<AgentConversationStatus> = new Set([
   'finished',
@@ -68,10 +71,11 @@ export async function executeAgentPhase(
 
   // Workspace targeting (ADR-0023 decision 5): local (default) = the loop's
   // working directory (the L2 git worktree when running L2); docker = /projects.
-  const workingDir = phase.workspace?.type === 'docker' ? '/projects' : process.cwd();
+  const workingDir = phase.workspace?.type === 'docker' ? DOCKER_WORKSPACE_MOUNT : process.cwd();
   // Trust tier (decision 7): the denylist rides inside the prompt as the soft
-  // control — the loop's command guard cannot see agent actions.
-  const effectivePrompt = [phase.prompt.trim(), buildDenylistPromptInstruction(workingDir)].join('\n\n');
+  // control — the loop's command guard cannot see agent actions. Prepend so a
+  // trailing "ignore everything above" cannot neutralize it.
+  const effectivePrompt = [buildDenylistPromptInstruction(workingDir), phase.prompt.trim()].join('\n\n');
 
   try {
     client = await mgr.getClient(effectiveSignal);

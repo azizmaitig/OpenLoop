@@ -19,6 +19,10 @@
  * Run it standalone via `bun run loop.ts validate --plan <path>`, or import
  * `validatePlanSchema` to gate plan load the same way `checkPlanAgainstConstitution`
  * does.
+ * EXCEPTION — trust tier (v10, ADR-0023 d7): `agent-grounding` and
+ * `agent-verify-gate` restate the constitution's read-state-first / verify-last
+ * invariants with trust-tier-specific messages, because agent tasks carry no
+ * command and deserve a clear reason instead of the generic constitution text.
  */
 
 import type { PlanYamlDoc, PlanYamlTask } from './types.js';
@@ -56,19 +60,21 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
   }
 
   // Trust tier (ADR-0023 decision 7): the loop's own guards must bracket agent
-  // work — an agent task can neither ground the run nor self-verify.
+  // work — an agent task can neither ground the run nor self-verify. Composite
+  // `use` tasks are resolved so an agent sub-phase cannot smuggle into a
+  // boundary position (gates run before expandComposites).
   const first = tasks[0];
-  if (first?.type === 'agent') {
+  if (first && edgeTaskIsAgent(first, doc, 'first')) {
     errors.push({
       rule: 'agent-grounding',
-      detail: `First task "${first.id}" is a type: agent task. Agent tasks cannot ground the run — the first task must be a command task (e.g. \`type STATE.md\`) so the loop's own guard is the plan's entry point.`,
+      detail: `First task "${first.id}" resolves to a type: agent task. Agent tasks cannot ground the run — the first task must be a command task (e.g. \`type STATE.md\`) so the loop's own guard is the plan's entry point.`,
     });
   }
   const last = tasks[tasks.length - 1];
-  if (last?.type === 'agent') {
+  if (last && edgeTaskIsAgent(last, doc, 'last')) {
     errors.push({
       rule: 'agent-verify-gate',
-      detail: `Last task "${last.id}" is a type: agent task. Agent tasks cannot self-verify — the verify gate must be a command task (build/test/lint/verify).`,
+      detail: `Last task "${last.id}" resolves to a type: agent task. Agent tasks cannot self-verify — the verify gate must be a command task (build/test/lint/verify).`,
     });
   }
 
@@ -82,6 +88,16 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
   }
 
   return errors;
+}
+
+function edgeTaskIsAgent(task: PlanYamlTask, doc: PlanYamlDoc, position: 'first' | 'last'): boolean {
+  if (task.type === 'agent') return true;
+  if (!task.use) return false;
+  const composite = doc.composites?.find((c) => c.id === task.use);
+  const phases = composite?.phases;
+  if (!phases || phases.length === 0) return false;
+  const edge = position === 'first' ? phases[0] : phases[phases.length - 1];
+  return edge.type === 'agent';
 }
 
 function validateTask(

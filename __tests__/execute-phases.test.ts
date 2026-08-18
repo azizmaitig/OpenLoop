@@ -125,7 +125,7 @@ describe("executePhaseGroup", () => {
       const pr = result.state.phaseResults["analyze"]!;
       expect(pr.status).toBe("pass");
       expect(pr.exitCode).toBe(0);
-      expect(pr.stdout).toContain("agent reply to: analyze the auth module");
+      expect(pr.stdout).toContain("analyze the auth module");
     } finally {
       stub.close();
     }

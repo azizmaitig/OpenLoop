@@ -49,7 +49,7 @@ describe("executeAgentPhase", () => {
       );
       expect(result.status).toBe("pass");
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("agent reply to: Analyze the auth module.");
+      expect(result.stdout).toContain("Analyze the auth module.");
       expect(result.stderr).toBe("");
     } finally {
       stub.close();
@@ -66,7 +66,7 @@ describe("executeAgentPhase", () => {
       expect(result.status).toBe("fail");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("failed");
-      expect(result.stdout).toContain("agent reply to: Analyze the auth module.");
+      expect(result.stdout).toContain("Analyze the auth module.");
     } finally {
       stub.close();
     }
@@ -191,7 +191,7 @@ describe("executeAgentPhase", () => {
     }
   });
 
-test("missing prompt → error result without any HTTP traffic", async () => {
+  test("missing prompt → error result without any HTTP traffic", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
@@ -270,7 +270,7 @@ test("missing prompt → error result without any HTTP traffic", async () => {
     }
   });
 
-test("abort signal stops polling and produces an error result", async () => {
+  test("abort signal stops polling and produces an error result", async () => {
     const stub = startAgentStub(); // runs forever — only the abort stops it
     const ac = new AbortController();
     try {

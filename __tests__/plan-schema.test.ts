@@ -258,4 +258,52 @@ describe("agent task rules (v10, ADR-0023)", () => {
     ]);
     expect(validatePlanSchema(doc)).toEqual([]);
   });
+
+  test("rejects a composite use-task whose first sub-phase is an agent task (AC4 bypass)", () => {
+    const doc = plan(
+      [
+        { id: "ground", use: "agent-step", command: "type STATE.md" },
+        { id: "verify", command: "bun test" },
+      ],
+      {
+        composites: [
+          {
+            id: "agent-step",
+            phases: [
+              { id: "sub", type: "agent", prompt: "x" },
+              { id: "sub2", command: "echo ok" },
+            ],
+          },
+        ],
+      },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "agent-grounding");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("resolves to a type: agent task");
+  });
+
+  test("rejects a composite use-task whose last sub-phase is an agent task (AC4 bypass)", () => {
+    const doc = plan(
+      [
+        { id: "read-state", command: "type STATE.md" },
+        { id: "finish", use: "agent-step" },
+      ],
+      {
+        composites: [
+          {
+            id: "agent-step",
+            phases: [
+              { id: "sub", command: "echo ok" },
+              { id: "sub2", type: "agent", prompt: "x" },
+            ],
+          },
+        ],
+      },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "agent-verify-gate");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("resolves to a type: agent task");
+  });
 });
