@@ -19,6 +19,7 @@ import { evaluatePhase } from './evaluate.js';
 import { validatePhase } from './validator.js';
 import { executeAgentPhase } from './agent-executor.js';
 import type { AgentServerManager } from './agent-server.js';
+import type { DockerRunner } from './docker.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -50,6 +51,8 @@ export interface ExecutionDeps {
   signal?: AbortSignal;
   /** Optional: shared agent-server manager (sidecar lifecycle) — all loops reuse one process */
   agentServerManager?: AgentServerManager;
+  /** Optional: docker runner for docker-workspace agent tasks (per-task containers) */
+  dockerRunner?: DockerRunner;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -242,7 +245,7 @@ function executePhase(
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   return phase.type === 'agent'
-    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager)
+    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager, deps.dockerRunner)
     : executeShellCommand(phase.command, timeoutMs, signal);
 }
 

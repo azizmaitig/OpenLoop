@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopConfig, PhaseDef } from "../src/types.js";
 import { executeAgentPhase } from "../src/agent-executor.js";
+import type { DockerRunner } from "../src/docker.js";
 import { startAgentStub } from "./helpers/agent-stub.js";
 import type { StubServer } from "./helpers/agent-stub.js";
 
@@ -37,6 +38,30 @@ function runAgent(
   return executeAgentPhase(config, phase, timeoutMs, signal);
 }
 
+function makeFakeDockerRunner() {
+  const spawned: { stub: StubServer; stopped: boolean }[] = [];
+  const runner: DockerRunner = {
+    async runContainer() {
+      const stub = startAgentStub({ terminalStatus: "finished" });
+      const record = { stub, stopped: false };
+      spawned.push(record);
+      return {
+        name: `agent-server-test-${spawned.length}`,
+        hostPort: Number(new URL(stub.url).port),
+        stop: async () => {
+          record.stopped = true;
+          stub.close();
+        },
+      };
+    },
+  };
+  return { runner, spawned };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ── executeAgentPhase ─────────────────────────────────────────────────────────
 
 describe("executeAgentPhase", () => {
@@ -44,7 +69,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("pass");
@@ -60,7 +85,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "failed" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("fail");
@@ -76,7 +101,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "aborted" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("fail");
@@ -91,7 +116,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub(); // no terminalStatus — runs forever
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
         100, // tiny timeout
       );
@@ -108,7 +133,7 @@ describe("executeAgentPhase", () => {
       const result = await runAgent(
         makeConfig({
           phaseTimeoutMs: 100,
-          agentServer: { manage: false, url: stub.url, port: 8000 },
+          agentServer: { manage: false, url: stub.url, port: 0 },
         }),
         makeAgentPhase({ timeoutMs: undefined }),
       );
@@ -123,7 +148,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase({ prompt: "Do the thing now." }),
       );
       const id = stub.createdId;
@@ -141,23 +166,30 @@ describe("executeAgentPhase", () => {
   });
 
   test("passes model + workspace type to conversation creation", async () => {
-    const stub = startAgentStub({ terminalStatus: "finished" });
+    const { runner, spawned } = makeFakeDockerRunner();
     try {
-      await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+      const result = await executeAgentPhase(
+        makeConfig(),
         makeAgentPhase({
-          model: { provider: "ollama", model: "qwen2.5-coder" },
           workspace: { type: "docker" },
+          model: { provider: "ollama", model: "qwen2.5-coder" },
         }),
+        undefined,
+        undefined,
+        undefined,
+        runner,
       );
-      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect(result.status).toBe("pass");
+      const create = spawned[0]!.stub.calls.find(
+        (c) => c.method === "POST" && c.path === "/api/conversations",
+      );
       expect(create?.body).toEqual({
         model: { provider: "ollama", model: "qwen2.5-coder" },
         workspaceType: "docker",
-        workingDir: "/projects",
+        workingDir: "/workspace",
       });
     } finally {
-      stub.close();
+      for (const c of spawned) c.stub.close();
     }
   });
 
@@ -165,7 +197,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
       );
       const id = stub.createdId;
@@ -181,7 +213,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ failCreate: true });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("error");
@@ -234,17 +266,24 @@ describe("executeAgentPhase", () => {
     }
   });
 
-  test("docker workspace targets /projects (ADR-0023 decision 5)", async () => {
-    const stub = startAgentStub({ terminalStatus: "finished" });
+  test("docker workspace targets /workspace (verified agent-server container convention)", async () => {
+    const { runner, spawned } = makeFakeDockerRunner();
     try {
-      await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+      const result = await executeAgentPhase(
+        makeConfig(),
         makeAgentPhase({ workspace: { type: "docker" } }),
+        undefined,
+        undefined,
+        undefined,
+        runner,
       );
-      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
-      expect((create?.body as { workingDir?: string }).workingDir).toBe("/projects");
+      expect(result.status).toBe("pass");
+      const create = spawned[0]!.stub.calls.find(
+        (c) => c.method === "POST" && c.path === "/api/conversations",
+      );
+      expect((create?.body as { workingDir?: string }).workingDir).toBe("/workspace");
     } finally {
-      stub.close();
+      for (const c of spawned) c.stub.close();
     }
   });
 
@@ -267,6 +306,45 @@ describe("executeAgentPhase", () => {
       expect(content).toContain("SAFETY");
     } finally {
       stub.close();
+    }
+  });
+
+  test("docker workspace runs through a per-task containerized sidecar and cleans up", async () => {
+    const { runner, spawned } = makeFakeDockerRunner();
+    try {
+      const result = await executeAgentPhase(
+        makeConfig(),
+        makeAgentPhase({ workspace: { type: "docker" } }),
+        undefined,
+        undefined,
+        undefined,
+        runner,
+      );
+      expect(result.status).toBe("pass");
+      expect(spawned.length).toBe(1); // per-task container
+      expect(spawned[0]!.stopped).toBe(true); // container stopped after the phase
+    } finally {
+      for (const c of spawned) c.stub.close();
+    }
+  });
+
+  test("local workspace never spawns a container", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    const { runner, spawned } = makeFakeDockerRunner();
+    try {
+      const result = await executeAgentPhase(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ workspace: { type: "local" } }),
+        undefined,
+        undefined,
+        undefined,
+        runner,
+      );
+      expect(result.status).toBe("pass");
+      expect(spawned.length).toBe(0);
+    } finally {
+      stub.close();
+      for (const c of spawned) c.stub.close();
     }
   });
 
@@ -319,7 +397,3 @@ test("stub helper starts on an ephemeral port", () => {
     stub.close();
   }
 });
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

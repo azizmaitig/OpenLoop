@@ -1,4 +1,4 @@
-# ADR-0023 — Agent Server sidecar execution (v10)
+﻿# ADR-0023 — Agent Server sidecar execution (v10)
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
@@ -15,7 +15,7 @@ agent-loop v8 runs plan tasks as shell commands and MCP/LLM steps. Those can't d
 - **MCP adapter** — DOES NOT EXIST: `mcp_router.py` only configures outbound MCP tools for the agent; it does not expose agent sessions inbound.
 - **SDK embedding** — IMPOSSIBLE: the SDK is Python-only; agent-loop is Bun/TS with a deliberate zero-build, no-Python-at-runtime posture.
 
-Additionally, an agent task is a **backdoor past the command denylist** (`safety.ts` `isSafeCommand` never sees agent actions) — a new trust boundary must be declared, not assumed.
+Additionally, an agent task is a **backdoor past the command denylist** (`constitution.ts` `isSafeCommand` never sees agent actions) — a new trust boundary must be declared, not assumed.
 
 Seven decisions, resolved by grilling (ADR-0023 grilling session, 2026-08-17).
 
@@ -34,7 +34,7 @@ New `src/agent-server.ts` deep module (ADR-0017 pattern) owns spawn/health/resta
 The executor translates the conversation's terminal state into a `PhaseResult` (pass/fail; stdout = last agent message / event summary). The normal `verify` phase gates the result like any task — **no new FSM states**. Crash checkpoint semantics unchanged.
 
 ### 5. Workspaces = local AND docker, both live in v10
-`workspace.type: local` (default) runs the agent in the loop's working directory (for L2: the git worktree — the existing worktree mandate stays authoritative). `workspace.type: docker` runs it in a sandboxed container (`/projects` mount) — the hard enforcement for untrusted work. Both are real in v10, not schema-reserved.
+`workspace.type: local` (default) runs the agent in the loop's working directory (for L2: the git worktree — the existing worktree mandate stays authoritative). `workspace.type: docker` runs it in a sandboxed container (`/workspace` mount — the verified agent-server image convention, per primary-source research in issue #30) — the hard enforcement for untrusted work. The client provisions the container per task (`docker run -d --rm -p 0:8000 -v <cwd>:/workspace <agent-server image>`); one container = one agent server = per-conversation isolation. Both are real in v10, not schema-reserved.
 
 ### 6. Model config = server defaults + per-task override
 The sidecar manager injects server-level LLM defaults at spawn (config file/env via `OPENHANDS_AGENT_SERVER_CONFIG_PATH`; LiteLLM-backed). A task's `model:` block overrides at conversation creation. Per-task provider switching (ollama for cheap analysis, claude for hard edits) works without repeating config.

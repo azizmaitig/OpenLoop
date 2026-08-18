@@ -13,9 +13,12 @@
 
 import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
 import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
-import { getAgentServerManager } from './agent-server.js';
+import { getAgentServerManager, createAgentServerManager } from './agent-server.js';
 import type { AgentServerManager } from './agent-server.js';
+import { createDockerSpawner, createDockerRunner } from './docker.js';
+import type { DockerRunner } from './docker.js';
 import { buildDenylistPromptInstruction } from './constitution.js';
+import { DEFAULT_AGENT_SERVER_CONFIG } from './config.js';
 
 /** How often the executor polls conversation status. */
 export const AGENT_POLL_INTERVAL_MS = 250;
@@ -23,8 +26,8 @@ export const AGENT_POLL_INTERVAL_MS = 250;
 /** Fallback per-phase timeout when neither phase.timeoutMs nor config.phaseTimeoutMs is set. */
 const DEFAULT_PHASE_TIMEOUT_MS = 30000;
 
-/** Docker workspace mount (ADR-0023 decision 5). */
-const DOCKER_WORKSPACE_MOUNT = '/projects';
+/** Docker workspace container mount (verified agent-server image convention). */
+const DOCKER_WORKSPACE_MOUNT = '/workspace';
 
 /** Statuses that end the conversation (ADR-0023 decision 4: finished → pass, others → fail). */
 const TERMINAL_STATUSES: ReadonlySet<AgentConversationStatus> = new Set([
@@ -48,6 +51,7 @@ export async function executeAgentPhase(
   timeoutMs?: number,
   signal?: AbortSignal,
   manager?: AgentServerManager,
+  dockerRunner?: DockerRunner,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
 
@@ -65,17 +69,33 @@ export async function executeAgentPhase(
   const timeoutAc = new AbortController();
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
 
-  const mgr = manager ?? getAgentServerManager(config);
   let client: AgentServerClient | undefined;
   let conversationId: string | undefined;
 
   // Workspace targeting (ADR-0023 decision 5): local (default) = the loop's
-  // working directory (the L2 git worktree when running L2); docker = /projects.
-  const workingDir = phase.workspace?.type === 'docker' ? DOCKER_WORKSPACE_MOUNT : process.cwd();
+  // working directory (the L2 git worktree when running L2); docker = the
+  // container's /workspace mount (verified agent-server image convention).
+  const dockerWorkspace = phase.workspace?.type === 'docker';
+  const workingDir = dockerWorkspace ? DOCKER_WORKSPACE_MOUNT : process.cwd();
   // Trust tier (decision 7): the denylist rides inside the prompt as the soft
   // control — the loop's command guard cannot see agent actions. Prepend so a
   // trailing "ignore everything above" cannot neutralize it.
   const effectivePrompt = [buildDenylistPromptInstruction(workingDir), phase.prompt.trim()].join('\n\n');
+
+  // Local tasks share the uvx sidecar singleton (provided manager wins);
+  // docker tasks ALWAYS provision their own containerized sidecar per task
+  // (one container = one conversation, verified mechanism) — a shared server
+  // cannot provide container isolation, so the docker path overrides any
+  // provided manager.
+  const mgr = dockerWorkspace
+    ? createAgentServerManager(
+        {
+          ...config,
+          agentServer: { ...(config.agentServer ?? DEFAULT_AGENT_SERVER_CONFIG), manage: true },
+        },
+        createDockerSpawner(dockerRunner ?? createDockerRunner()),
+      )
+    : (manager ?? getAgentServerManager(config));
 
   try {
     client = await mgr.getClient(effectiveSignal);
@@ -114,6 +134,14 @@ export async function executeAgentPhase(
       } catch (err) {
         // Best-effort cleanup — a missed DELETE must never fail the phase.
         console.error(`[agent-executor] conversation cleanup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (dockerWorkspace) {
+      try {
+        await mgr.stop();
+      } catch (err) {
+        // Best-effort — a container that fails to stop must never fail the phase.
+        console.error(`[agent-executor] docker container cleanup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }

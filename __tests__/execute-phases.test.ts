@@ -2,7 +2,9 @@ import { describe, expect, test, spyOn } from "bun:test";
 import type { ExecutionDeps } from "../src/execute-phases.js";
 import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.js";
 import { createAgentServerManager } from "../src/agent-server.js";
+import type { DockerRunner } from "../src/docker.js";
 import { startAgentStub } from "./helpers/agent-stub.js";
+import type { StubServer } from "./helpers/agent-stub.js";
 
 import { executePhaseGroup } from "../src/execute-phases.js";
 
@@ -47,6 +49,26 @@ function makeDeps(overrides?: Partial<ExecutionDeps>): ExecutionDeps {
     onPhaseFailed: () => {},
     ...overrides,
   };
+}
+
+function makeFakeDockerRunner() {
+  const spawned: { stub: StubServer; stopped: boolean }[] = [];
+  const runner: DockerRunner = {
+    async runContainer() {
+      const stub = startAgentStub({ terminalStatus: "finished" });
+      const record = { stub, stopped: false };
+      spawned.push(record);
+      return {
+        name: `agent-server-test-${spawned.length}`,
+        hostPort: Number(new URL(stub.url).port),
+        stop: async () => {
+          record.stopped = true;
+          stub.close();
+        },
+      };
+    },
+  };
+  return { runner, spawned };
 }
 
 // ── executePhaseGroup ─────────────────────────────────────────────────────────
@@ -170,6 +192,62 @@ describe("executePhaseGroup", () => {
       expect(result.state.phaseResults["verify"]!.status).toBe("pass");
     } finally {
       stub.close();
+    }
+  });
+
+  test("local and docker agent tasks coexist in one plan — per-task containers (AC3)", async () => {
+    const localStub = startAgentStub({ terminalStatus: "finished" });
+    const { runner, spawned } = makeFakeDockerRunner();
+    const localManager = createAgentServerManager(
+      {
+        ...makeConfig([]),
+        agentServer: { manage: true, url: localStub.url, port: 0 },
+      },
+      {
+        async spawn() {
+          return {
+            pid: 1,
+            baseUrl: localStub.url,
+            kill: () => {
+              try {
+                localStub.close();
+              } catch {}
+            },
+            stderr: Promise.resolve(""),
+          };
+        },
+      },
+      { readyTimeoutMs: 50, pollIntervalMs: 10 },
+    );
+    try {
+      const deps = makeDeps({
+        config: {
+          ...makeConfig([
+            makePhase({ name: "read-state", command: "type STATE.md" }),
+            makePhase({ name: "analyze-local", type: "agent", prompt: "local task", command: undefined }),
+            makePhase({
+              name: "analyze-docker",
+              type: "agent",
+              prompt: "docker task",
+              command: undefined,
+              workspace: { type: "docker" },
+            }),
+            makePhase({ name: "verify", command: "echo verified" }),
+          ]),
+        },
+        agentServerManager: localManager,
+        dockerRunner: runner,
+      });
+      const result = await executePhaseGroup(deps, makeState(), 1);
+
+      expect(result.allPassed).toBe(true);
+      expect(result.state.phaseResults["analyze-local"]!.status).toBe("pass");
+      expect(result.state.phaseResults["analyze-docker"]!.status).toBe("pass");
+      expect(spawned.length).toBe(1); // exactly one container, for the docker task only
+    } finally {
+      localStub.close();
+      for (const c of spawned) c.stub.close();
+      await localManager.stop();
     }
   });
 
