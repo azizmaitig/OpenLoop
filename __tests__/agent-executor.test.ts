@@ -202,12 +202,12 @@ describe("executeAgentPhase", () => {
     }
   });
 
-  test("abort signal stops polling and produces an error result", async () => {
+test("abort signal stops polling and produces an error result", async () => {
     const stub = startAgentStub(); // runs forever — only the abort stops it
     const ac = new AbortController();
     try {
       const promise = runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase(),
         5000,
         ac.signal,
@@ -216,6 +216,26 @@ describe("executeAgentPhase", () => {
       const result = await promise;
       expect(result.status).toBe("error");
       expect(result.stderr).toContain("cancelled");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("sidecar crash mid-conversation fails the phase — no hang (AC5)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished", terminalAfter: 999 });
+    try {
+      const promise = runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase(),
+        5000,
+      );
+      await sleep(100); // let the conversation start, then kill the sidecar
+      stub.close();
+
+      const result = await Promise.race([promise, sleep(2000).then(() => null)]);
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe("error");
+      expect(result!.stderr).toContain("Agent Server");
     } finally {
       stub.close();
     }
@@ -231,3 +251,7 @@ test("stub helper starts on an ephemeral port", () => {
     stub.close();
   }
 });
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

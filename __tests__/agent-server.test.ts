@@ -35,7 +35,6 @@ function makeFakeSpawner(healthySequence: boolean[] = [true]) {
             stub.close();
           } catch {}
         },
-        exited: Promise.resolve(0),
         stderr: Promise.resolve("fake sidecar stderr"),
       };
       spawned.push({ stub, process });
@@ -60,6 +59,10 @@ function makeManager(
 
 function agentServerConfig(manage: boolean, url: string, port: number) {
   return { agentServer: { manage, url, port } };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── manage: true — lifecycle ──────────────────────────────────────────────────
@@ -111,11 +114,40 @@ describe("createAgentServerManager (manage: true)", () => {
   });
 
   test("aborts after bounded restarts when the sidecar never becomes healthy", async () => {
-    const { spawner, spawned } = makeFakeSpawner([false, false, false, false, false, false]);
+    const { spawner, spawned } = makeFakeSpawner([false, false, false, false]);
     const mgr = makeManager(makeConfig(agentServerConfig(true, "http://127.0.0.1:1", 1)), spawner);
 
     await expect(mgr.getClient()).rejects.toThrow(/aborting/);
     expect(spawned.length).toBe(4); // 1 initial + 3 restarts (maxRestarts)
+  });
+
+  test("alive-but-unhealthy sidecar does not hang the restart loop", async () => {
+    const spawner: AgentServerSpawner = {
+      async spawn() {
+        const stub = startAgentStub({ healthy: false });
+        return {
+          pid: 1,
+          baseUrl: stub.url,
+          kill: () => {
+            try {
+              stub.close();
+            } catch {}
+          },
+          // stderr never resolves — simulates a wedged process whose pipe never closes
+          stderr: new Promise<string>(() => {}),
+        };
+      },
+    };
+    const mgr = makeManager(makeConfig(agentServerConfig(true, "http://127.0.0.1:1", 1)), spawner);
+
+    const outcome = await Promise.race([
+      mgr.getClient().then(
+        () => "RESOLVED",
+        (err: Error) => `REJECTED: ${err.message}`,
+      ),
+      sleep(2000).then(() => "HANG"),
+    ]);
+    expect(outcome).toContain("aborting");
   });
 
   test("surfaces a spawn failure with a clear diagnostic (missing uvx)", async () => {

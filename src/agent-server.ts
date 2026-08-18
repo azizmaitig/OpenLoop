@@ -20,7 +20,6 @@ export interface AgentServerProcess {
   /** Actual listening URL — the spawner reports it when it differs from the config URL (e.g. ephemeral ports in tests). */
   baseUrl?: string;
   kill(): void;
-  exited: Promise<number>;
   /** Sidecar stderr text; resolved when the process exits. Used for spawn-failure diagnostics. */
   stderr?: Promise<string>;
 }
@@ -50,7 +49,8 @@ const DEFAULT_OPTIONS: Required<AgentServerManagerOptions> = {
   maxRestarts: 3,
 };
 
-const HEALTH_PROBE_TIMEOUT_MS = 2000;
+/** How long to wait for a killed sidecar's stderr before giving up on the diagnostic. */
+const STDERR_READ_TIMEOUT_MS = 200;
 
 /** Production spawner: `uvx openhands-agent-server` on the configured port. */
 export const defaultSpawner: AgentServerSpawner = {
@@ -75,13 +75,23 @@ export const defaultSpawner: AgentServerSpawner = {
       kill: () => {
         try {
           proc.kill();
-        } catch {}
+        } catch (err) {
+          console.error(`[agent-server] kill failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        }
       },
-      exited: proc.exited,
       stderr,
     };
   },
 };
+
+/** Resolve the config's agentServer defaults once — shared by the manager and the singleton cache key. */
+function agentServerDefaults(config: LoopConfig) {
+  return {
+    manage: config.agentServer?.manage ?? DEFAULT_AGENT_SERVER_CONFIG.manage,
+    url: config.agentServer?.url ?? DEFAULT_AGENT_SERVER_CONFIG.url,
+    port: config.agentServer?.port ?? DEFAULT_AGENT_SERVER_CONFIG.port,
+  };
+}
 
 export function createAgentServerManager(
   config: LoopConfig,
@@ -89,9 +99,7 @@ export function createAgentServerManager(
   options: AgentServerManagerOptions = {},
 ): AgentServerManager {
   const opts: Required<AgentServerManagerOptions> = { ...DEFAULT_OPTIONS, ...options };
-  const manage = config.agentServer?.manage ?? DEFAULT_AGENT_SERVER_CONFIG.manage;
-  const baseUrl = config.agentServer?.url ?? DEFAULT_AGENT_SERVER_CONFIG.url;
-  const port = config.agentServer?.port ?? DEFAULT_AGENT_SERVER_CONFIG.port;
+  const { manage, url: baseUrl, port } = agentServerDefaults(config);
   const maxAttempts = opts.maxRestarts + 1;
 
   let process: AgentServerProcess | null = null;
@@ -112,7 +120,9 @@ export function createAgentServerManager(
     if (process) {
       try {
         process.kill();
-      } catch {}
+      } catch (err) {
+        console.error(`[agent-server] kill failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     process = null;
   }
@@ -156,8 +166,13 @@ export function createAgentServerManager(
         if (await pollUntilHealthy(url)) {
           return createAgentServerClient(url, signal);
         }
-        lastStderr = await process.stderr?.catch(() => '') ?? '';
+        // Kill first, then read stderr with a bound: a wedged process never closes
+        // its stderr pipe, so an unbounded read would hang the restart loop.
+        const stderrPromise = process.stderr;
         killProcess();
+        lastStderr = stderrPromise
+          ? await Promise.race([stderrPromise.catch(() => ''), sleep(STDERR_READ_TIMEOUT_MS).then(() => '')])
+          : '';
       }
     },
 
@@ -170,9 +185,7 @@ export function createAgentServerManager(
 const managerCache = new Map<string, AgentServerManager>();
 
 function cacheKey(config: LoopConfig): string {
-  const manage = config.agentServer?.manage ?? DEFAULT_AGENT_SERVER_CONFIG.manage;
-  const url = config.agentServer?.url ?? DEFAULT_AGENT_SERVER_CONFIG.url;
-  const port = config.agentServer?.port ?? DEFAULT_AGENT_SERVER_CONFIG.port;
+  const { manage, url, port } = agentServerDefaults(config);
   return `${manage}|${url}|${port}`;
 }
 
