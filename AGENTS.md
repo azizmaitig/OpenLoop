@@ -145,9 +145,10 @@ All agents working in this repo MUST follow these rules. They are non-negotiable
 ## Plans (`.plan.yaml`)
 
 - Before authoring any plan under `plans/`, read `PLAN-WRITING-GUIDE.md`.
-- A plan missing `read-state`, a real `command` on LLM tasks, correct path convention
-  (absolute for cross-project, relative for in-loop), a verify/build final task, or
-  bundling unrelated fixes is WRONG.
+- A plan missing `read-state`, a real `command` on command tasks (`type: agent` tasks
+  carry a required `prompt` instead — they are a distinct kind, see PLAN-WRITING-GUIDE §3B),
+  correct path convention (absolute for cross-project, relative for in-loop), a
+  verify/build final task, or bundling unrelated fixes is WRONG.
 - One concern per plan. L1 = report-only; never edit source until L2 enabled.
 
 ---

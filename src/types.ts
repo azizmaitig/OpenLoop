@@ -23,7 +23,7 @@ export interface AgentTaskModel {
   model: string;
 }
 
-/** Workspace for agent tasks (v10, ADR-0023). local (default) = loop working dir; docker = sandboxed /projects mount. */
+/** Workspace for agent tasks (v10, ADR-0023). local (default) = loop working dir; docker = sandboxed /workspace mount. */
 export interface AgentTaskWorkspace {
   type: 'local' | 'docker';
 }

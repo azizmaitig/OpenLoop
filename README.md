@@ -136,6 +136,9 @@ Verify tasks can heal themselves — a failed verify re-runs \`healCommand\` up 
     maxRetries: 3
 ```
 
+Plans can also contain `type: agent` tasks that delegate to an agent backend (OpenHands
+Agent Server) via a required `prompt` — see [PLAN-WRITING-GUIDE §3B](PLAN-WRITING-GUIDE.md).
+
 See [`plans/`](plans/) for `daily-triage.yaml`, `pr-babysitter.yaml`, `ci-sweeper.yaml`, and more.
 
 ### Daemon + dashboard
@@ -324,7 +327,7 @@ import type { LoopConfig, PhaseDef, LoopState, LoopResult } from "agent-loop";
 ## Documentation
 
 - **Architecture Decisions** — [`docs/adr/`](docs/adr/) (ADR-0001, 0002, 0003, 0004, 0008–0013): raw-HTTP agentmemory transport, daemon slice, YAML consolidation, feedback controller, and more.
-- **Plan authoring** — [`PLAN-WRITING-GUIDE.md`](PLAN-WRITING-GUIDE.md): every `.plan.yaml` needs `read-state`, a real `command` on LLM tasks, absolute paths, and a verify/build final task.
+- **Plan authoring** — [`PLAN-WRITING-GUIDE.md`](PLAN-WRITING-GUIDE.md): every `.plan.yaml` needs `read-state`, a real `command` on command tasks (agent tasks carry a `prompt`), absolute paths, and a verify/build final task.
 - **Loop safety** — [`AGENTS.md`](AGENTS.md): the rules that govern all loop work in this repo.
 
 ---
