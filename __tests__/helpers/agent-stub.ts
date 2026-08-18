@@ -36,6 +36,8 @@ export interface StubBehavior {
   terminalAfter?: number;
   /** Respond 500 to POST /api/conversations. */
   failCreate?: boolean;
+  /** Respond 500 to GET /api/health (default healthy). */
+  healthy?: boolean;
 }
 
 export interface StubServer {
@@ -68,6 +70,12 @@ export function startAgentStub(behavior: StubBehavior = {}): StubServer {
         }
       }
       calls.push({ method: req.method, path, body });
+
+      if (req.method === "GET" && path === "/api/health") {
+        return behavior.healthy === false
+          ? Response.json({ status: "unhealthy" }, { status: 500 })
+          : Response.json({ status: "ok" });
+      }
 
       if (req.method === "POST" && path === "/api/conversations") {
         if (behavior.failCreate) {

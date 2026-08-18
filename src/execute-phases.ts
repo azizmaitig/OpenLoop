@@ -18,6 +18,7 @@
 import { evaluatePhase } from './evaluate.js';
 import { validatePhase } from './validator.js';
 import { executeAgentPhase } from './agent-executor.js';
+import type { AgentServerManager } from './agent-server.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -47,6 +48,8 @@ export interface ExecutionDeps {
   broadcast?: (type: string, data: unknown) => void;
   /** Optional: abort signal to cancel in-flight phase execution */
   signal?: AbortSignal;
+  /** Optional: shared agent-server manager (sidecar lifecycle) — all loops reuse one process */
+  agentServerManager?: AgentServerManager;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -239,7 +242,7 @@ function executePhase(
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   return phase.type === 'agent'
-    ? executeAgentPhase(deps.config, phase, timeoutMs, signal)
+    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager)
     : executeShellCommand(phase.command, timeoutMs, signal);
 }
 

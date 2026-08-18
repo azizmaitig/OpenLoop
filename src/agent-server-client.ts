@@ -48,10 +48,14 @@ export interface AgentServerClient {
   sendMessage(conversationId: string, message: string): Promise<void>;
   getConversation(conversationId: string): Promise<AgentConversation>;
   deleteConversation(conversationId: string): Promise<void>;
+  checkHealth(): Promise<boolean>;
 }
 
 /** Cap on error-body snippets attached to non-2xx failures. */
 const ERROR_BODY_SNIPPET_MAX = 200;
+
+/** How long a health probe waits before the backend counts as unhealthy. */
+const HEALTH_CHECK_TIMEOUT_MS = 2000;
 
 export function createAgentServerClient(
   baseUrl: string,
@@ -93,6 +97,16 @@ export function createAgentServerClient(
     },
     async deleteConversation(conversationId) {
       await request<{ ok: boolean }>('DELETE', conversationUrl(conversationId));
+    },
+    async checkHealth() {
+      try {
+        const res = await fetch(`${baseUrl}/api/health`, {
+          signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
     },
   };
 }

@@ -44,7 +44,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("pass");
@@ -60,7 +60,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "failed" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("fail");
@@ -76,7 +76,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "aborted" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("fail");
@@ -91,7 +91,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub(); // no terminalStatus — runs forever
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
         100, // tiny timeout
       );
@@ -108,7 +108,7 @@ describe("executeAgentPhase", () => {
       const result = await runAgent(
         makeConfig({
           phaseTimeoutMs: 100,
-          agentServer: { manage: true, url: stub.url, port: 8000 },
+          agentServer: { manage: false, url: stub.url, port: 8000 },
         }),
         makeAgentPhase({ timeoutMs: undefined }),
       );
@@ -123,7 +123,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase({ prompt: "Do the thing now." }),
       );
       const id = stub.createdId;
@@ -141,7 +141,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase({
           model: { provider: "ollama", model: "qwen2.5-coder" },
           workspace: { type: "docker" },
@@ -161,7 +161,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
       const id = stub.createdId;
@@ -177,7 +177,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ failCreate: true });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
       expect(result.status).toBe("error");
@@ -191,7 +191,7 @@ describe("executeAgentPhase", () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase({ prompt: undefined }),
       );
       expect(result.status).toBe("error");
@@ -207,7 +207,7 @@ describe("executeAgentPhase", () => {
     const ac = new AbortController();
     try {
       const promise = runAgent(
-        makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
         5000,
         ac.signal,

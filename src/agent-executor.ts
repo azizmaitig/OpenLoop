@@ -12,9 +12,9 @@
  */
 
 import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
-import { createAgentServerClient } from './agent-server-client.js';
-import type { AgentConversationStatus, AgentEvent } from './agent-server-client.js';
-import { DEFAULT_AGENT_SERVER_CONFIG } from './config.js';
+import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
+import { getAgentServerManager } from './agent-server.js';
+import type { AgentServerManager } from './agent-server.js';
 
 /** How often the executor polls conversation status. */
 export const AGENT_POLL_INTERVAL_MS = 250;
@@ -43,6 +43,7 @@ export async function executeAgentPhase(
   phase: PhaseDef,
   timeoutMs?: number,
   signal?: AbortSignal,
+  manager?: AgentServerManager,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
 
@@ -60,11 +61,12 @@ export async function executeAgentPhase(
   const timeoutAc = new AbortController();
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
 
-  const baseUrl = config.agentServer?.url ?? DEFAULT_AGENT_SERVER_CONFIG.url;
-  const client = createAgentServerClient(baseUrl, effectiveSignal);
+  const mgr = manager ?? getAgentServerManager(config);
+  let client: AgentServerClient | undefined;
   let conversationId: string | undefined;
 
   try {
+    client = await mgr.getClient(effectiveSignal);
     const conversation = await client.createConversation({
       model: phase.model,
       workspaceType: phase.workspace?.type,
@@ -95,7 +97,7 @@ export async function executeAgentPhase(
   } finally {
     if (conversationId) {
       try {
-        await client.deleteConversation(conversationId);
+        await client?.deleteConversation(conversationId);
       } catch (err) {
         // Best-effort cleanup — a missed DELETE must never fail the phase.
         console.error(`[agent-executor] conversation cleanup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);

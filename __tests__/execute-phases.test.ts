@@ -1,6 +1,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import type { ExecutionDeps } from "../src/execute-phases.js";
 import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.js";
+import { createAgentServerManager } from "../src/agent-server.js";
 import { startAgentStub } from "./helpers/agent-stub.js";
 
 import { executePhaseGroup } from "../src/execute-phases.js";
@@ -84,10 +85,18 @@ describe("executePhaseGroup", () => {
   });
 
   test("agent phase with no reachable server errors loudly — never silently passes", async () => {
-    const deps = makeDeps({
-      config: makeConfig([
+    const deadConfig = {
+      ...makeConfig([
         makePhase({ name: "agent-task", type: "agent", prompt: "do the thing", command: undefined }),
       ]),
+      agentServer: { manage: false, url: "http://127.0.0.1:59999", port: 59999 },
+    };
+    const deps = makeDeps({
+      config: deadConfig,
+      agentServerManager: createAgentServerManager(deadConfig, undefined, {
+        readyTimeoutMs: 50,
+        pollIntervalMs: 10,
+      }),
     });
     const state = makeState();
 
@@ -107,7 +116,7 @@ describe("executePhaseGroup", () => {
           ...makeConfig([
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
           ]),
-          agentServer: { manage: true, url: stub.url, port: 8000 },
+          agentServer: { manage: false, url: stub.url, port: 8000 },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
@@ -130,7 +139,7 @@ describe("executePhaseGroup", () => {
           ...makeConfig([
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
           ]),
-          agentServer: { manage: true, url: stub.url, port: 8000 },
+          agentServer: { manage: false, url: stub.url, port: 8000 },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
@@ -151,7 +160,7 @@ describe("executePhaseGroup", () => {
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
             makePhase({ name: "verify", command: "echo verified", dependsOn: ["analyze"] }),
           ]),
-          agentServer: { manage: true, url: stub.url, port: 8000 },
+          agentServer: { manage: false, url: stub.url, port: 8000 },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
