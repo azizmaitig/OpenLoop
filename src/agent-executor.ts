@@ -15,7 +15,7 @@ import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
 import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
 import { getAgentServerManager, createAgentServerManager } from './agent-server.js';
 import type { AgentServerManager } from './agent-server.js';
-import { createDockerSpawner, createDockerRunner } from './docker.js';
+import { createDockerSpawner, createDockerRunner, DOCKER_WORKSPACE_MOUNT } from './docker.js';
 import type { DockerRunner } from './docker.js';
 import { buildDenylistPromptInstruction } from './constitution.js';
 import { DEFAULT_AGENT_SERVER_CONFIG } from './config.js';
@@ -25,9 +25,6 @@ export const AGENT_POLL_INTERVAL_MS = 250;
 
 /** Fallback per-phase timeout when neither phase.timeoutMs nor config.phaseTimeoutMs is set. */
 const DEFAULT_PHASE_TIMEOUT_MS = 30000;
-
-/** Docker workspace container mount (verified agent-server image convention). */
-const DOCKER_WORKSPACE_MOUNT = '/workspace';
 
 /** Statuses that end the conversation (ADR-0023 decision 4: finished → pass, others → fail). */
 const TERMINAL_STATUSES: ReadonlySet<AgentConversationStatus> = new Set([

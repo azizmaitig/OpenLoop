@@ -1,4 +1,4 @@
-﻿# ADR-0023 — Agent Server sidecar execution (v10)
+# ADR-0023 — Agent Server sidecar execution (v10)
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
@@ -40,7 +40,7 @@ The executor translates the conversation's terminal state into a `PhaseResult` (
 The sidecar manager injects server-level LLM defaults at spawn (config file/env via `OPENHANDS_AGENT_SERVER_CONFIG_PATH`; LiteLLM-backed). A task's `model:` block overrides at conversation creation. Per-task provider switching (ollama for cheap analysis, claude for hard edits) works without repeating config.
 
 ### 7. Agent tasks = explicit trust tier
-Agent tasks are a distinct trust boundary: opt-in per task, governed by the existing L1/L2 human gates. The command denylist (`constitution.ts`) does NOT see agent actions, so the denylist is passed into the prompt as instruction (soft). Hard enforcement arrives via `workspace.type: docker` for untrusted work.
+Agent tasks are a distinct trust boundary: opt-in per task, governed by the existing L1/L2 human gates. The command denylist (`shell.ts`) does NOT see agent actions, so the denylist is passed into the prompt as instruction (soft). Hard enforcement arrives via `workspace.type: docker` for untrusted work.
 
 ## Considered Options
 

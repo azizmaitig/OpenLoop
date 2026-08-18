@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+﻿import { describe, expect, test } from "bun:test";
 import type { LoopConfig, PhaseDef } from "../src/types.js";
 import { executeAgentPhase } from "../src/agent-executor.js";
-import type { DockerRunner } from "../src/docker.js";
 import { startAgentStub } from "./helpers/agent-stub.js";
 import type { StubServer } from "./helpers/agent-stub.js";
+import { makeFakeDockerRunner } from "./helpers/docker-stub.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,26 +36,6 @@ function runAgent(
   signal?: AbortSignal,
 ) {
   return executeAgentPhase(config, phase, timeoutMs, signal);
-}
-
-function makeFakeDockerRunner() {
-  const spawned: { stub: StubServer; stopped: boolean }[] = [];
-  const runner: DockerRunner = {
-    async runContainer() {
-      const stub = startAgentStub({ terminalStatus: "finished" });
-      const record = { stub, stopped: false };
-      spawned.push(record);
-      return {
-        name: `agent-server-test-${spawned.length}`,
-        hostPort: Number(new URL(stub.url).port),
-        stop: async () => {
-          record.stopped = true;
-          stub.close();
-        },
-      };
-    },
-  };
-  return { runner, spawned };
 }
 
 function sleep(ms: number): Promise<void> {

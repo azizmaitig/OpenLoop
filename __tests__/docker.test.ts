@@ -1,10 +1,15 @@
-import { describe, expect, test } from "bun:test";
-import type { DockerRunner } from "../src/docker.js";
-import { createDockerSpawner, parseDockerPortOutput, DOCKER_AGENT_SERVER_IMAGE } from "../src/docker.js";
-import { createAgentServerManager } from "../src/agent-server.js";
+﻿import { describe, expect, test } from "bun:test";
 import type { LoopConfig } from "../src/types.js";
-import { startAgentStub } from "./helpers/agent-stub.js";
-import type { StubServer } from "./helpers/agent-stub.js";
+import {
+  createDockerSpawner,
+  parseDockerPortOutput,
+  buildDockerRunCommand,
+  DOCKER_AGENT_SERVER_IMAGE,
+  DOCKER_AGENT_SERVER_CONTAINER_PORT,
+  DOCKER_WORKSPACE_MOUNT,
+} from "../src/docker.js";
+import { createAgentServerManager } from "../src/agent-server.js";
+import { makeFakeDockerRunner } from "./helpers/docker-stub.js";
 
 function makeConfig(overrides?: Partial<LoopConfig>): LoopConfig {
   return {
@@ -17,47 +22,35 @@ function makeConfig(overrides?: Partial<LoopConfig>): LoopConfig {
   };
 }
 
-interface FakeContainer {
-  stub: StubServer;
-  stopped: boolean;
-  hostPort: number;
-  params?: { image: string; hostDir: string };
-}
-
-/** Fake docker runner: each runContainer starts a real stub on a random port and records params. */
-function makeFakeDockerRunner() {
-  const spawned: FakeContainer[] = [];
-  const runner: DockerRunner = {
-    async runContainer(params) {
-      const stub = startAgentStub();
-      const record: FakeContainer = {
-        stub,
-        stopped: false,
-        hostPort: Number(new URL(stub.url).port),
-        params,
-      };
-      spawned.push(record);
-      return {
-        name: `agent-server-test-${spawned.length}`,
-        hostPort: record.hostPort,
-        stop: async () => {
-          record.stopped = true;
-          stub.close();
-        },
-      };
-    },
-  };
-  return { runner, spawned };
-}
-
 describe("parseDockerPortOutput", () => {
   test("parses the host port from `docker port` output", () => {
-    expect(parseDockerPortOutput("0.0.0.0:32145\n")).toBe(32145);
+    expect(parseDockerPortOutput("127.0.0.1:32145\n")).toBe(32145);
   });
 
   test("throws on unparseable output", () => {
     expect(() => parseDockerPortOutput("")).toThrow();
     expect(() => parseDockerPortOutput("0.0.0.0:notaport")).toThrow();
+  });
+});
+
+describe("buildDockerRunCommand", () => {
+  test("binds the host port on 127.0.0.1 only — never exposes the agent server on the LAN", () => {
+    const cmd = buildDockerRunCommand({
+      name: "agent-server-test-1",
+      hostDir: "C:\\proj",
+      image: DOCKER_AGENT_SERVER_IMAGE,
+    });
+    expect(cmd).toContain(`-p 127.0.0.1:0:${DOCKER_AGENT_SERVER_CONTAINER_PORT}`);
+    expect(cmd).not.toContain("-p 0:");
+  });
+
+  test("mounts the host project at the container workspace", () => {
+    const cmd = buildDockerRunCommand({
+      name: "agent-server-test-1",
+      hostDir: "C:\\proj",
+      image: DOCKER_AGENT_SERVER_IMAGE,
+    });
+    expect(cmd).toContain(`-v "C:\\proj:${DOCKER_WORKSPACE_MOUNT}"`);
   });
 });
 
