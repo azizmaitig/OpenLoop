@@ -30,4 +30,26 @@ describe("plan type shapes", () => {
     expect(minimal.llm).toBeUndefined();
     expect(minimal.timeoutMs).toBeUndefined();
   });
+
+  test("PlanYamlTask agent shape composes (v10: type, prompt, workspace, model)", () => {
+    const agentTask: PlanYamlTask = {
+      id: "analyze",
+      type: "agent",
+      prompt: "Analyze the auth module and report security issues.",
+      agent: "openhands",
+      model: { provider: "ollama", model: "qwen2.5-coder" },
+      workspace: { type: "docker" },
+    };
+    expect(agentTask.type).toBe("agent");
+    expect(agentTask.prompt).toBe("Analyze the auth module and report security issues.");
+    expect(agentTask.agent).toBe("openhands");
+    expect(agentTask.model).toEqual({ provider: "ollama", model: "qwen2.5-coder" });
+    expect(agentTask.workspace).toEqual({ type: "docker" });
+    expect(agentTask.command).toBeUndefined();
+
+    // legacy command task without an explicit type stays valid
+    const legacy: PlanYamlTask = { id: "x", command: "y" };
+    expect(legacy.type).toBeUndefined();
+    expect(legacy.command).toBe("y");
+  });
 });

@@ -1,0 +1,21 @@
+planName: spec-evolve
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 5000
+  - id: check-trigger
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\l3-check-trigger.ps1
+    timeoutMs: 20000
+  - id: evolve
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\l3-evolve.ps1
+    timeoutMs: 240000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are the L3 evolve agent. Verify the proposal file (.build/spec-evolve/spec-evolve-proposals.md) and the
+        patch (.build/spec-evolve/spec-evolve.patch) exist, the proposal has all six required fields per entry, and the
+        patch targets only intake/config files (never agent-loop/src/ or spec-factory/). Return JSON: { "passed":
+        boolean, "reason": "<markdown report of what was proposed and scope-check result>", "confidence": 0-1 }.
+  - id: verify-proposal
+    command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\plans\verify-proposal.ps1
+    timeoutMs: 20000

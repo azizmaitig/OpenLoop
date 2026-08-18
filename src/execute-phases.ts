@@ -17,6 +17,9 @@
 
 import { evaluatePhase } from './evaluate.js';
 import { validatePhase } from './validator.js';
+import { executeAgentPhase } from './agent-executor.js';
+import type { AgentServerManager } from './agent-server.js';
+import type { DockerRunner } from './docker.js';
 import { executeHooks } from './plugins.js';
 import type { Plugin, HookContext } from './plugins.js';
 import { RecoveryStrategy } from './recovery.js';
@@ -46,6 +49,10 @@ export interface ExecutionDeps {
   broadcast?: (type: string, data: unknown) => void;
   /** Optional: abort signal to cancel in-flight phase execution */
   signal?: AbortSignal;
+  /** Optional: shared agent-server manager (sidecar lifecycle) — all loops reuse one process */
+  agentServerManager?: AgentServerManager;
+  /** Optional: docker runner for docker-workspace agent tasks (per-task containers) */
+  dockerRunner?: DockerRunner;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -182,6 +189,7 @@ function makeCancelledResult(durationMs: number): PhaseResult {
  * Advisory/fail-open: never hard-fails the phase; records result.validation.
  */
 async function runValidatorGate(
+  deps: ExecutionDeps,
   phase: PhaseDef,
   result: PhaseResult,
   signal?: AbortSignal,
@@ -206,7 +214,7 @@ async function runValidatorGate(
   let lastJudgment = initial;
   for (; retriesUsed < maxRetries; retriesUsed++) {
     if (signal?.aborted) break;
-    const rerun = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+    const rerun = await executePhase(deps, phase, phase.timeoutMs, signal);
     if (rerun.status !== 'pass') {
       result = rerun; // real command failure -> propagate
       break;
@@ -228,6 +236,17 @@ async function runValidatorGate(
     retriesUsed,
   };
   return result; // status stays 'pass' (fail-open)
+}
+
+function executePhase(
+  deps: ExecutionDeps,
+  phase: PhaseDef,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<PhaseResult> {
+  return phase.type === 'agent'
+    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager, deps.dockerRunner)
+    : executeShellCommand(phase.command, timeoutMs, signal);
 }
 
 async function runSinglePhase(
@@ -259,12 +278,12 @@ async function runSinglePhase(
     planName,
     iteration,
     phaseName: phase.name,
-    command: phase.command,
+    command: phase.command ?? '',
     dependsOn: phase.dependsOn,
     order,
   }));
 
-  let result = await executeShellCommand(phase.command, phase.timeoutMs, signal);
+  let result = await executePhase(deps, phase, phase.timeoutMs, signal);
 
   // Apply output bounds — tail-cap stdout/stderr in memory, offload large output to disk
   const runName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName;
@@ -313,7 +332,7 @@ async function runSinglePhase(
 
   // ── Validator gate (Conductor-style semantic output validation) ──
   if (phase.validator) {
-    result = await runValidatorGate(phase, result, signal);
+    result = await runValidatorGate(deps, phase, result, signal);
   }
 
   const totalPhaseMs = Date.now() - phaseStart;
@@ -451,11 +470,21 @@ async function executePhasesSequential(
 // ── Shell command executor ────────────────────────────────────────────────────
 
 async function executeShellCommand(
-  command: string,
+  command: string | undefined,
   timeoutMs?: number,
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
+  if (!command || command.trim() === '') {
+    return {
+      status: 'error',
+      exitCode: -1,
+      stdout: '',
+      stderr: 'No command to execute — agent tasks (type: agent) are not executable yet (v10 T2 wires the sidecar executor).',
+      durationMs: 0,
+      evidencePath: '',
+    };
+  }
   if (signal?.aborted) {
     return {
       status: 'error',

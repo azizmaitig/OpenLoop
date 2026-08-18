@@ -26,7 +26,7 @@ The validator (`src/plan-schema.ts`, `validatePlanSchema`) catches:
 
 | Rule | What it catches |
 |------|-----------------|
-| `empty-command` | A task with no `command` (or whitespace only). The executor runs nothing and the phase "passes" — the #1 silent no-op. |
+| `empty-command` | A task with no `command` (or whitespace only) — **except `type: agent` tasks**, which execute a `prompt` instead (see §3B). The executor runs nothing and the phase "passes" — the #1 silent no-op. |
 | `duplicate-id` | Two tasks share an `id`; breaks resume + checkpoint keying. |
 | `unknown-llm-provider` | `llm.provider` isn't `openai` / `anthropic` / `opencode`; executor would silently default to `openai`. |
 | `missing-llm-prompt` | An `llm` block with no `prompt` (must request `{passed, reason, confidence}`). |
@@ -66,6 +66,10 @@ So a task that only needs an LLM decision still needs a real `command` (often a 
 read step whose output the LLM judges). Do not leave `command` empty or pointing at a
 dummy — point it at the step whose output the LLM should assess.
 
+The one exception is `type: agent` tasks (§3B): they carry a required `prompt` instead
+of a `command` and hand the whole task to an agent backend. That is the only task kind
+that does not run a shell command.
+
 At the end (`afterLoop`) the executor writes `status`, `durationMs`, `completedAt` back
 into your YAML and emits a `-report.md` from the LLM phase. **You do not hand-write those
 fields** — they are machine-owned. (Existing plans that contain them were produced by a run.)
@@ -102,7 +106,12 @@ That is the entire contract. `planName` + a list of tasks, each with a unique `i
 |---|---|---|---|
 | `planName` | yes | — | Unique kebab-case name. Missing → executor throws. |
 | `tasks[].id` | yes | — | Unique. Becomes the phase name. Duplicates break resume. |
-| `tasks[].command` | yes | — | Shell command. **Must exit 0.** Always executed, even with `llm`. |
+| `tasks[].command` | yes* | — | Shell command. **Must exit 0.** Always executed, even with `llm`. *Not allowed on `type: agent` tasks — those carry `prompt` instead (§3B). |
+| `tasks[].type` | no | `command` | Task-kind discriminator: `command` (default) \| `agent`. `agent` = executed by an agent backend, not a shell (§3B). |
+| `tasks[].prompt` | no* | — | *Required when `type: agent`. The instruction handed to the agent backend — what the agent executes. |
+| `tasks[].agent` | no | `openhands` | Agent backend name (`openhands` today; ACP later). |
+| `tasks[].model` | no | (server defaults) | Per-task model override `{ provider, model }`. Overrides the Agent Server's server-level LLM defaults for this conversation. |
+| `tasks[].workspace` | no | `local` | Agent tasks only. `{ type: local \| docker }`. `local` = loop working directory; `docker` = per-task sandboxed container mounting the loop cwd at `/workspace` for untrusted work (§3B). |
 | `tasks[].timeoutMs` | no | `30000` | Bumps to `120000` for builds / installs / anything slow. |
 | `tasks[].llm.provider` | no | `openai` | `openai` \| `anthropic` \| `opencode`. |
 | `tasks[].llm.prompt` | no* | `''` | *Required if `llm` present. Must ask for `passed`/`reason`/`confidence`. |
@@ -232,6 +241,153 @@ the sibling is aborted via `AbortController` and the layer fails immediately.
 - Phases with `dependsOn: []` (explicitly empty) are treated as having no
   dependencies and can group with other independent phases in layer 0.
 
+---
+
+## 3B. Agent tasks (`type: agent`)
+
+v10 adds a second task kind: **agent tasks** run by an agent backend (OpenHands Agent
+Server, ADR-0023) instead of a shell command. They are opt-in per task and governed by
+the same L1/L2 human gates as everything else.
+
+```yaml
+tasks:
+  - id: analyze-auth
+    type: agent            # REQUIRED — the task-kind discriminator
+    prompt: >-             # REQUIRED — the instruction the agent executes
+      Analyze the auth module and report security issues. Read the code, plan,
+      edit if needed, run tests.
+    agent: openhands       # optional — backend name (openhands today, ACP later)
+    model:                 # optional — per-task model override
+      provider: ollama
+      model: qwen2.5-coder
+    workspace:             # optional — local (default) | docker
+      type: docker
+    timeoutMs: 120000      # optional — same as command tasks
+```
+
+**Rules (all enforced at parse time by the schema validator):**
+
+- `type: agent` is **mutually exclusive** with `command` — both present → `agent-with-command` error. Agent tasks execute a `prompt`, not a shell command.
+- `prompt` is **required** on agent tasks — missing → `missing-agent-prompt` error.
+- `workspace.type` must be `local` or `docker` — anything else → `unknown-workspace-type` error. `local` (default) runs the agent in the loop's working directory; `docker` runs it in a per-task sandboxed container for untrusted work (§3B.1).
+- **Agent tasks cannot be the plan's first or last task** — schema gates `agent-grounding` (first) and `agent-verify-gate` (last). The run must be grounded by a command task (e.g. `type STATE.md`) and closed by a command verify task (build/test/lint/verify), so the loop's own guards bracket agent work. Composite `use` tasks are resolved, so an agent sub-phase cannot smuggle into a boundary position either.
+- `model: { provider, model }` overrides the Agent Server's server-level LLM defaults for that conversation (§3B.2).
+- The existing `llm:` block is untouched — it stays advisory grading, orthogonal to execution. The normal `verify` phase gates agent results like any other task.
+- Agent tasks mix freely with command tasks in one DAG — `dependsOn` is kind-agnostic.
+
+**Execution is wired** (T2–T5, not a stub): an agent task creates a conversation on the
+sidecar, sends the prompt, polls to a terminal state, and maps the result to a normal
+`PhaseResult` — `finished` passes, `failed`/`aborted`/`stopped` fail (`src/agent-executor.ts`,
+`src/agent-server.ts`, `src/docker.ts`). A hard per-phase `timeoutMs` bounds the
+conversation.
+
+A mixed plan — command grounding/verification + local trusted analysis + docker
+sandboxed edit:
+
+```yaml
+planName: agent-mixed-workspace
+tasks:
+  - id: read-state
+    command: type STATE.md          # grounding must be a command task
+
+  - id: audit-local
+    type: agent
+    prompt: >-
+      Read the repository and produce a triage report of the auth module.
+      Do not edit anything — report only.
+    model:                          # cheap model for analysis
+      provider: ollama
+      model: qwen2.5-coder
+
+  - id: patch-untrusted
+    type: agent
+    prompt: >-
+      Implement the approved fixes from the triage report. Run the project's
+      tests before finishing.
+    workspace:
+      type: docker                  # hard enforcement for the edit task
+
+  - id: verify
+    command: bun test               # verification must be a command task
+    timeoutMs: 120000
+```
+
+### 3B.1 Trust tier (denylist-as-prompt, docker as hard enforcement)
+
+Agent actions bypass the command guard — `shell.ts`'s `isSafeCommand` never sees what an
+agent does. The denylist is therefore a **two-layer control** (ADR-0023 decision 7):
+
+1. **Soft — denylist-as-prompt.** `buildDenylistPromptInstruction` (`src/constitution.ts`)
+   prepends a `SAFETY CONSTRAINT` block to **every** agent prompt, enumerating the tokens
+   `.env`, `auth/`, `payments/`, `secrets/`, `credentials/` as binding: the agent MUST NOT
+   access, create, modify, or delete any path containing them, and must STOP and report a
+   conflict instead of proceeding. It is prepended (not appended) so a trailing "ignore
+   everything above" cannot neutralize it.
+2. **Hard — `workspace.type: docker`.** The container mounts only the loop cwd
+   (`-v <cwd>:/workspace`, conversation workingDir `/workspace`) and runs the agent
+   sandboxed with no host access beyond that mount. Use docker for untrusted work;
+   `local` runs the agent in the loop's working directory (the L2 git worktree when
+   running L2) and is trusted by comparison.
+
+Both layers sit under the existing **L1/L2 human gates** — the trust tier is opt-in per
+task, and L1 remains report-only: no agent task runs until a human enables L2.
+
+### 3B.2 Sidecar configuration (`agentServer.*`)
+
+The sidecar is **loop-level config** (`LoopConfig.agentServer`, defaults in
+`src/config.ts`) — not a plan-YAML field. From the CLI it is set via
+`LOOP_AGENT_SERVER_*` environment variables (see the table). The env surface
+applies to `start` and daemon `--plan` runs; multi-loop `--loops-config`
+children require programmatic config (or the subprocess fallback, which
+inherits the env).
+
+| Key / env var | Default | What it does |
+|-----|---------|--------------|
+| `agentServer.manage` / `LOOP_AGENT_SERVER_MANAGE` | `true` | `true`: the loop lazily spawns and owns the sidecar (`uvx --from openhands-agent-server agent-server[.exe]`, health-gated, bounded restart then ABORT). `false`: connect to a BYO server `url` with no process ownership (systemd/Docker-managed). |
+| `agentServer.url` / `LOOP_AGENT_SERVER_URL` | `http://127.0.0.1:8000` | Base URL of the Agent Server REST API. |
+| `agentServer.port` / `LOOP_AGENT_SERVER_PORT` | `8000` | Port the spawned sidecar listens on (spawn arg when `manage: true`). |
+| `agentServer.readyTimeoutMs` / `LOOP_AGENT_SERVER_READY_TIMEOUT_MS` | `5000` | How long a freshly spawned sidecar has to become healthy. Raise for slow cold starts (uvx installs, first container boot). |
+| `agentServer.maxRestarts` / `LOOP_AGENT_SERVER_MAX_RESTARTS` | `3` | Restart budget after the initial spawn before the loop ABORTs. |
+| `agentServer.defaults` / `LOOP_AGENT_SERVER_DEFAULTS_*` | — | Server-level LLM defaults for every agent conversation: `model`, `baseUrl`, `apiKey` (+ optional `provider`). **`model` must carry a LiteLLM-known provider prefix** — e.g. `openai/deepseek-v4-flash-free` with an OpenAI-compatible `baseUrl` (like the opencode compat shim, `scripts/opencode-compat-server.ts`). `apiKey` must be non-empty — LiteLLM refuses keyless requests even for keyless gateways (any dummy value works against a local shim). Per-task `model:` overrides the model part only. |
+
+Example (opencode serve + the compat shim, free DeepSeek V4 Flash):
+
+```powershell
+$env:LOOP_AGENT_SERVER_DEFAULTS_MODEL = "openai/deepseek-v4-flash-free"
+$env:LOOP_AGENT_SERVER_DEFAULTS_BASE_URL = "http://host.docker.internal:4097"
+$env:LOOP_AGENT_SERVER_DEFAULTS_API_KEY = "sk-none"
+$env:LOOP_AGENT_SERVER_READY_TIMEOUT_MS = "120000"
+bun run loop.ts start --plan plans/my-agent-plan.yaml
+```
+
+One sidecar is shared across all child loops (one conversation per loop). Docker tasks
+**always** provision their own containerized sidecar regardless of `manage` — one
+container = one agent server = per-conversation isolation.
+
+### 3B.3 Cost discipline (agent conversations are real money)
+
+An agent conversation consumes **real model tokens on every run** — create conversation →
+send prompt → poll → delete. The loop's **budget guard counts runs, not tokens**
+(`loop-run-log.md` vs the daily run cap); a token-heavy agent plan can exhaust cost
+silently without ever tripping the run budget (ADR-0023, consequences / out of scope).
+
+Plan-level discipline is the v10 mitigation (a per-agent token counter is explicitly out
+of scope):
+
+- **One concern per agent task.** A prompt that asks for triage AND implementation AND a
+  test run is several conversations of drift. Split into tasks wired with `dependsOn`.
+- **Right-size the model.** Use `model:` overrides for cheap providers on analysis tasks
+  (e.g. ollama for audit, a frontier model for the hard edit) — per-task provider
+  switching is the point of the override.
+- **Ground cheap, verify real.** The first and last tasks are command tasks by schema
+  gate anyway — keep grounding and verification shell, not agent.
+- **`docker` only for genuinely untrusted work.** Containers add image-pull + startup
+  overhead per task; use `local` for trusted in-loop work.
+- **Set a realistic `timeoutMs`.** A conversation killed by timeout still burned tokens
+  up to the kill — budget the phase for the agent's worst case, not the happy path.
+- **Watch scheduled plans.** A cron'd agent plan multiplies token spend per tick; review
+  it against the daily token cap (`AGENTS.md` → Budget) before scheduling.
+
 ## 4. Reusable composite sequences (Feature B)
 
 Plan YAML can define reusable phase sequences under a top-level `composites:` block.
@@ -328,6 +484,10 @@ These come from `AGENTS.md`. A plan that violates them is a
   proposing a fix. Max **3 fix attempts** per item; escalate after.
 - **Never** push, merge, close issues/PRs, or edit `.env` / `auth/` / `payments/` / `secrets/`
   without explicit human approval.
+- **Agent tasks get the denylist as prompt instruction, not enforcement.** Agent actions
+  bypass the command guard, so the denylist is prepended to every agent prompt as a
+  binding instruction; hard enforcement is the `docker` workspace. Both sit under the
+  L1/L2 human gates (§3B.1).
 - **Paths: match the established convention.** The loop runs from the `agent-loop` project
   root, so `.\scripts\foo.ps1` (relative) is the proven, working form used by every
   `design-calendar-*.yaml` plan. **For in-loop plans (audit/maintenance/triage)**, use
@@ -370,7 +530,9 @@ phases point at it.
 
 ## 7. Two plan archetypes
 
-The loop supports two styles. Pick the right one for your goal.
+The loop supports two styles for **command tasks**. Pick the right one for your goal.
+(Native agent-backend execution via `type: agent` is a distinct task kind, not a third
+archetype — see §3B.)
 
 ### 7A. Audit / maintenance — pure shell (no LLM)
 
@@ -632,12 +794,13 @@ runs blind). | Verify each agent's write permission before assigning artifact ou
 Before saving a plan, confirm:
 
 - [ ] `planName` present and unique
-- [ ] Every task has a unique `id` and a `command` that exits 0
+- [ ] Every task has a unique `id` and either a `command` that exits 0 or (`type: agent`) a `prompt`
 - [ ] First task reads `STATE.md`
 - [ ] Paths use `.\scripts\...` convention (relative to loop root) for scripts; `type STATE.md` for read-state
 - [ ] Builds/installs have `timeoutMs: 120000`
 - [ ] Exactly one concern per plan
-- [ ] Last task is a verify/build that exits 0
+- [ ] Last task is a verify/build that exits 0 (and is NOT a `type: agent` task — §3B)
+- [ ] Agent tasks: `prompt` present, first/last tasks are not agent tasks, `workspace.type` is `local`/`docker`, docker used for untrusted work, `model:` right-sized for the task (§3B)
 - [ ] Every `llm:` prompt demands `{passed, reason, confidence}`
 - [ ] Fix tasks carry `healCommand` + `maxRetries` (L2 only)
 - [ ] Generative phases (code, design) have `produces:` set to the expected diff/artifact path

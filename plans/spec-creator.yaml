@@ -1,0 +1,32 @@
+planName: spec-creator
+tasks:
+  - id: read-state
+    command: type STATE.md
+    timeoutMs: 10000
+  - id: gate-evolve
+    command: >-
+      powershell.exe -NoProfile -File "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel
+      loops\spec-factory\.scratch\l1-evolve-gate.ps1" -Specs "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
+    timeoutMs: 30000
+  - id: read-inbox
+    command: >-
+      powershell.exe -NoProfile -File "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\plans\l1-read-inbox.ps1" -Specs "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs" -Out "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs\ideas\.next-idea.txt"
+    timeoutMs: 30000
+  - id: draft-increment
+    command: >-
+      powershell.exe -NoProfile -File "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\plans\l1-draft-increment.ps1" -Specs "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs" -IdeaFile "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs\ideas\.next-idea.txt" -Workspace
+      "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory"
+    timeoutMs: 600000
+  - id: verify-draft
+    command: >-
+      powershell.exe -NoProfile -File "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\plans\l1-verify-draft.ps1" -Specs "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
+    timeoutMs: 30000

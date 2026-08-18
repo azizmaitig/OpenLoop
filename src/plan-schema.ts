@@ -19,6 +19,10 @@
  * Run it standalone via `bun run loop.ts validate --plan <path>`, or import
  * `validatePlanSchema` to gate plan load the same way `checkPlanAgainstConstitution`
  * does.
+ * EXCEPTION — trust tier (v10, ADR-0023 d7): `agent-grounding` and
+ * `agent-verify-gate` restate the constitution's read-state-first / verify-last
+ * invariants with trust-tier-specific messages, because agent tasks carry no
+ * command and deserve a clear reason instead of the generic constitution text.
  */
 
 import type { PlanYamlDoc, PlanYamlTask } from './types.js';
@@ -55,6 +59,25 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
     }
   }
 
+  // Trust tier (ADR-0023 decision 7): the loop's own guards must bracket agent
+  // work — an agent task can neither ground the run nor self-verify. Composite
+  // `use` tasks are resolved so an agent sub-phase cannot smuggle into a
+  // boundary position (gates run before expandComposites).
+  const first = tasks[0];
+  if (first && edgeTaskIsAgent(first, doc, 'first')) {
+    errors.push({
+      rule: 'agent-grounding',
+      detail: `First task "${first.id}" resolves to a type: agent task. Agent tasks cannot ground the run — the first task must be a command task (e.g. \`type STATE.md\`) so the loop's own guard is the plan's entry point.`,
+    });
+  }
+  const last = tasks[tasks.length - 1];
+  if (last && edgeTaskIsAgent(last, doc, 'last')) {
+    errors.push({
+      rule: 'agent-verify-gate',
+      detail: `Last task "${last.id}" resolves to a type: agent task. Agent tasks cannot self-verify — the verify gate must be a command task (build/test/lint/verify).`,
+    });
+  }
+
   // Composites: validate their sub-phases too (they share the same field rules).
   if (doc.composites) {
     for (const composite of doc.composites) {
@@ -67,6 +90,16 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
   return errors;
 }
 
+function edgeTaskIsAgent(task: PlanYamlTask, doc: PlanYamlDoc, position: 'first' | 'last'): boolean {
+  if (task.type === 'agent') return true;
+  if (!task.use) return false;
+  const composite = doc.composites?.find((c) => c.id === task.use);
+  const phases = composite?.phases;
+  if (!phases || phases.length === 0) return false;
+  const edge = position === 'first' ? phases[0] : phases[phases.length - 1];
+  return edge.type === 'agent';
+}
+
 function validateTask(
   task: PlanYamlTask,
   idx: number,
@@ -75,12 +108,47 @@ function validateTask(
 ): void {
   const where = `${label} "${task.id ?? `#${idx}`}"`;
 
-  // Rule: command must be a non-empty string. The executor maps command -> name
-  // and runs it verbatim; an empty command produces no work and "passes".
-  if (task.command === undefined || task.command === null || task.command.trim() === '') {
+  // Rule: unknown task-kind discriminator (v10).
+  if (task.type !== undefined && task.type !== 'command' && task.type !== 'agent') {
+    errors.push({
+      rule: 'unknown-task-type',
+      detail: `${where} has type "${task.type}" which is not one of command | agent.`,
+    });
+  }
+
+  const isAgentTask = task.type === 'agent';
+
+  // Rule: type: agent and command are mutually exclusive (ADR-0023 decision 3).
+  if (isAgentTask && task.command !== undefined && task.command !== null) {
+    errors.push({
+      rule: 'agent-with-command',
+      detail: `${where} is a type: agent task but also declares a command — command and type: agent are mutually exclusive.`,
+    });
+  }
+
+  // Rule: command must be a non-empty string for command tasks. The executor maps
+  // command -> name and runs it verbatim; an empty command produces no work and
+  // "passes". Agent tasks are exempt — they run a prompt instead (checked below).
+  if (!isAgentTask && (task.command === undefined || task.command === null || task.command.trim() === '')) {
     errors.push({
       rule: 'empty-command',
       detail: `${where} has an empty or missing command. Every task must run a real shell command (even LLM tasks — the command produces the stdout the LLM judges).`,
+    });
+  }
+
+  // Rule: agent tasks require a prompt — never burn tokens on an empty conversation.
+  if (isAgentTask && (!task.prompt || task.prompt.trim() === '')) {
+    errors.push({
+      rule: 'missing-agent-prompt',
+      detail: `${where} is a type: agent task without a prompt. The prompt is what the agent executes — it is required.`,
+    });
+  }
+
+  // Rule: workspace.type must be local | docker (ADR-0023 decision 5).
+  if (task.workspace && task.workspace.type !== 'local' && task.workspace.type !== 'docker') {
+    errors.push({
+      rule: 'unknown-workspace-type',
+      detail: `${where} has workspace.type "${task.workspace.type}" which is not one of local | docker.`,
     });
   }
 

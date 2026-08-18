@@ -35,11 +35,13 @@ function edgeStrokeForTarget(targetNode: DagNodeData | undefined): string {
 
 const nodeTypes = { dagNode: DagNode };
 
-/** Build React Flow nodes from DAG data, merging user-dragged positions over layout. */
+/** Build React Flow nodes from DAG data, merging user-dragged positions over layout.
+ *  Selection state is NOT set on the node object — DagNode reads it from the zustand
+ *  store directly to avoid creating new Node references on every click (which causes
+ *  React Flow's internal store to loop — error #185). */
 export function buildRfNodes(
   dagNodes: DagNodeData[],
   positions: Map<string, { x: number; y: number }>,
-  selectedNodeId: string | null,
   draggedPositions: Map<string, { x: number; y: number }>,
 ): Node[] {
   return dagNodes.map((n) => {
@@ -52,7 +54,6 @@ export function buildRfNodes(
       data: n as unknown as Record<string, unknown>,
       width: NODE_W,
       draggable: true,
-      selected: n.id === selectedNodeId,
     };
   });
 }
@@ -60,7 +61,6 @@ export function buildRfNodes(
 export function WorkflowGraph() {
   const dagNodes = useDagStore((s) => s.dagNodes);
   const dagEdges = useDagStore((s) => s.dagEdges);
-  const selectedNodeId = useDagStore((s) => s.selectedNodeId);
   const setSelectedNode = useDagStore((s) => s.setSelectedNode);
   const liveMode = useDagStore((s) => s.liveMode);
   const setLiveMode = useDagStore((s) => s.setLiveMode);
@@ -91,8 +91,8 @@ export function WorkflowGraph() {
   }, []);
 
   const rfNodes: Node[] = useMemo(
-    () => buildRfNodes(dagNodes, positions, selectedNodeId, draggedPositionsRef.current),
-    [dagNodes, positions, selectedNodeId],
+    () => buildRfNodes(dagNodes, positions, draggedPositionsRef.current),
+    [dagNodes, positions],
   );
 
   const rfEdges: Edge[] = useMemo(

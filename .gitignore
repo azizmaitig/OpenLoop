@@ -36,6 +36,10 @@ loop-run-log.md
 
 # Runtime/scratch state (generated daemon state, test artifacts)
 STATE.md
+daemon-*.pid
+daemon-*.log
+daemon-*.err
+e2e-*.log
 backend-tsc.txt
 .debug-journal.md
 _scripts/

@@ -17,9 +17,31 @@ export interface ValidationResult {
   retriesUsed: number;
 }
 
+/** Per-task model override for agent tasks (v10, ADR-0023). Overrides sidecar defaults at conversation creation. */
+export interface AgentTaskModel {
+  provider: string;
+  model: string;
+}
+
+/** Workspace for agent tasks (v10, ADR-0023). local (default) = loop working dir; docker = sandboxed /workspace mount. */
+export interface AgentTaskWorkspace {
+  type: 'local' | 'docker';
+}
+
 export interface PhaseDef {
   name: string;
-  command: string;
+  /** Task-kind discriminator (v10): 'command' (default) | 'agent'. Mutually exclusive with command when 'agent'. */
+  type?: 'command' | 'agent';
+  /** Shell command for command phases. Absent when type: agent. */
+  command?: string;
+  /** Required when type: agent — the prompt handed to the agent backend. */
+  prompt?: string;
+  /** Agent backend name (openhands today, ACP later). */
+  agent?: string;
+  /** Per-task model override for agent phases. */
+  model?: AgentTaskModel;
+  /** Workspace for agent phases: local (default) or docker sandbox. */
+  workspace?: AgentTaskWorkspace;
   expectedExitCode: number;
   timeoutMs: number;
   llm?:
@@ -64,6 +86,31 @@ export interface LoopConfig {
   plugins?: string[];
   planPath?: string;
   memory?: MemoryConfig;
+  /** Agent Server sidecar config (v10, ADR-0023). Defaults in DEFAULT_CONFIG. */
+  agentServer?: AgentServerConfig;
+}
+
+export interface AgentServerConfig {
+  /** true: the loop spawns and manages the sidecar process. false: connect to a BYO server URL. */
+  manage: boolean;
+  /** Base URL of the Agent Server REST API. */
+  url: string;
+  /** Port the sidecar listens on (spawn arg when manage: true). */
+  port: number;
+  /** How long a freshly spawned sidecar has to become healthy, in ms (default 5000). */
+  readyTimeoutMs?: number;
+  /** Restart budget after the initial spawn (default 3). */
+  maxRestarts?: number;
+  /** Server-level LLM defaults supplied to every agent conversation; per-task model blocks override the model part. */
+  defaults?: {
+    provider?: string;
+    /** Model name — either a full "provider/model" string or the model half of the provider pair. */
+    model?: string;
+    /** OpenAI-compatible base URL (e.g. an opencode compat shim). */
+    baseUrl?: string;
+    /** API key — LiteLLM requires a non-empty value even for keyless gateways. */
+    apiKey?: string;
+  };
 }
 
 export type OutcomeStatus = 'pass' | 'fail' | 'error';
@@ -108,7 +155,18 @@ export interface LoopResult {
 
 export interface PlanYamlTask {
   id: string;
-  command: string;
+  /** Task-kind discriminator (v10): 'command' (default) | 'agent'. Mutually exclusive with `command` when 'agent'. */
+  type?: 'command' | 'agent';
+  /** Shell command for command tasks. Must be absent when type: agent. */
+  command?: string;
+  /** Required when type: agent — the prompt handed to the agent backend. */
+  prompt?: string;
+  /** Agent backend name (openhands today, ACP later). */
+  agent?: string;
+  /** Per-task model override for agent tasks. */
+  model?: AgentTaskModel;
+  /** Workspace for agent tasks: local (default) or docker sandbox. */
+  workspace?: AgentTaskWorkspace;
   timeoutMs?: number;
   llm?: { mcpServer: string; tool: string; prompt: string } | { provider: string; prompt: string };
   healCommand?: string;
