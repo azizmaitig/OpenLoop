@@ -36,6 +36,22 @@ function findDenylistedToken(command: string): string | null {
   return null;
 }
 
+/**
+ * Trust-tier soft control (ADR-0023 decision 7): agent actions bypass the
+ * command guard, so the denylist is injected into every agent prompt as a
+ * binding instruction. Hard enforcement is the docker workspace (T5).
+ */
+export function buildDenylistPromptInstruction(workingDir: string): string {
+  const tokens = DENYLISTED_PATH_TOKENS.map((t) => `\`${t}\``).join(', ');
+  return [
+    'SAFETY CONSTRAINT (binding — agent trust tier, ADR-0023):',
+    "The loop's command guard cannot see agent actions, so this instruction is the enforced soft control.",
+    `You MUST NOT access, create, modify, or delete any path containing: ${tokens}.`,
+    `Working directory: ${workingDir}.`,
+    'If the task requires any of these paths, STOP and report the conflict instead of proceeding.',
+  ].join('\n');
+}
+
 function checkCommandForDenylistedPath(
   command: string | undefined,
   taskId: string,

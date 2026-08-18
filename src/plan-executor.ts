@@ -81,6 +81,15 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
   activePlanPath = planPath;
   const doc = await parsePlanYaml(planPath);
 
+  // Schema pre-flight gate first — field contract (v10: agent task rules + trust tier).
+  const schemaErrors = validatePlanSchema(doc);
+  if (schemaErrors.length > 0) {
+    const lines = schemaErrors
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`Plan schema violation in ${planPath}:\n${lines}`);
+  }
+
   // Constitution pre-flight gate — borrowed spec-kit concept.
   const violations = checkPlanAgainstConstitution(doc);
   if (violations.length > 0) {
@@ -88,15 +97,6 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
       .map((v) => `  - [${v.rule}] ${v.detail}`)
       .join('\n');
     throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
-  }
-
-  // Schema pre-flight gate — field contract (v10: agent task rules included).
-  const schemaErrors = validatePlanSchema(doc);
-  if (schemaErrors.length > 0) {
-    const lines = schemaErrors
-      .map((v) => `  - [${v.rule}] ${v.detail}`)
-      .join('\n');
-    throw new Error(`Plan schema violation in ${planPath}:\n${lines}`);
   }
 
   activePlanDoc = doc;

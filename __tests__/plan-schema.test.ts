@@ -150,6 +150,7 @@ describe("agent task rules (v10, ADR-0023)", () => {
 
   test("accepts an agent task with optional agent/model fields", () => {
     const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
       {
         id: "analyze",
         type: "agent",
@@ -157,6 +158,7 @@ describe("agent task rules (v10, ADR-0023)", () => {
         agent: "openhands",
         model: { provider: "ollama", model: "qwen2.5-coder" },
       },
+      { id: "verify", command: "bun test" },
     ]);
     expect(validatePlanSchema(doc)).toEqual([]);
   });
@@ -224,5 +226,36 @@ describe("agent task rules (v10, ADR-0023)", () => {
     expect(
       errs.some((e) => e.rule === "agent-with-command" && e.detail.includes('Composite "agent-step"')),
     ).toBe(true);
+  });
+
+  test("rejects an agent task as the plan's first (grounding) task — trust tier (AC4)", () => {
+    const doc = plan([
+      { id: "analyze", type: "agent", prompt: "analyze the auth module" },
+      { id: "verify", command: "bun test" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "agent-grounding");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("cannot ground");
+  });
+
+  test("rejects an agent task as the plan's last (verify) task — trust tier (AC4)", () => {
+    const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
+      { id: "analyze", type: "agent", prompt: "analyze the auth module" },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "agent-verify-gate");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("self-verify");
+  });
+
+  test("accepts an agent task bracketed by command grounding and verify tasks (AC4)", () => {
+    const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
+      { id: "analyze", type: "agent", prompt: "analyze the auth module" },
+      { id: "verify", command: "bun test" },
+    ]);
+    expect(validatePlanSchema(doc)).toEqual([]);
   });
 });

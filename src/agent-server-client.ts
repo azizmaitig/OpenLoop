@@ -41,6 +41,8 @@ export interface CreateConversationParams {
   model?: AgentTaskModel;
   /** Workspace kind: local (default) | docker (ADR-0023 decision 5). */
   workspaceType?: AgentTaskWorkspace['type'];
+  /** Directory the agent acts in: loop cwd for local, /projects for docker (ADR-0023 decision 5). */
+  workingDir?: string;
 }
 
 export interface AgentServerClient {

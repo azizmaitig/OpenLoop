@@ -49,7 +49,7 @@ describe("executeAgentPhase", () => {
       );
       expect(result.status).toBe("pass");
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("agent reply to: Analyze the auth module.");
+      expect(result.stdout).toContain("agent reply to: Analyze the auth module.");
       expect(result.stderr).toBe("");
     } finally {
       stub.close();
@@ -66,7 +66,7 @@ describe("executeAgentPhase", () => {
       expect(result.status).toBe("fail");
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("failed");
-      expect(result.stdout).toBe("agent reply to: Analyze the auth module.");
+      expect(result.stdout).toContain("agent reply to: Analyze the auth module.");
     } finally {
       stub.close();
     }
@@ -131,7 +131,10 @@ describe("executeAgentPhase", () => {
       const sent = stub.calls.find(
         (c) => c.method === "POST" && c.path === `/api/conversations/${id}/events`,
       );
-      expect(sent?.body).toEqual({ content: "Do the thing now." });
+      const content = (sent?.body as { content?: string })?.content ?? "";
+      expect(content).toContain("Do the thing now.");
+      expect(content).toContain(".env"); // denylist instruction injected (trust tier)
+      expect(content).toContain("auth/");
     } finally {
       stub.close();
     }
@@ -151,6 +154,7 @@ describe("executeAgentPhase", () => {
       expect(create?.body).toEqual({
         model: { provider: "ollama", model: "qwen2.5-coder" },
         workspaceType: "docker",
+        workingDir: "/projects",
       });
     } finally {
       stub.close();
@@ -187,16 +191,80 @@ describe("executeAgentPhase", () => {
     }
   });
 
-  test("missing prompt → error result without any HTTP traffic", async () => {
+test("missing prompt → error result without any HTTP traffic", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
       const result = await runAgent(
-        makeConfig({ agentServer: { manage: false, url: stub.url, port: 8000 } }),
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
         makeAgentPhase({ prompt: undefined }),
       );
       expect(result.status).toBe("error");
       expect(result.stderr).toContain("prompt");
       expect(stub.calls.length).toBe(0);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("local workspace targets the loop's working directory (AC1)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ workspace: { type: "local" } }),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect((create?.body as { workingDir?: string }).workingDir).toBe(process.cwd());
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("omitted workspace targets the loop's working directory (local default, AC1)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ workspace: undefined }),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect((create?.body as { workingDir?: string }).workingDir).toBe(process.cwd());
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("docker workspace targets /projects (ADR-0023 decision 5)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ workspace: { type: "docker" } }),
+      );
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/api/conversations");
+      expect((create?.body as { workingDir?: string }).workingDir).toBe("/projects");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("denylist instruction is injected into the sent prompt (AC3)", async () => {
+    const stub = startAgentStub({ terminalStatus: "finished" });
+    try {
+      await runAgent(
+        makeConfig({ agentServer: { manage: false, url: stub.url, port: 0 } }),
+        makeAgentPhase({ prompt: "Analyze the auth module." }),
+      );
+      const id = stub.createdId;
+      const sent = stub.calls.find(
+        (c) => c.method === "POST" && c.path === `/api/conversations/${id}/events`,
+      );
+      const content = (sent?.body as { content?: string })?.content ?? "";
+      for (const token of [".env", "auth/", "payments/", "secrets/", "credentials/"]) {
+        expect(content).toContain(token);
+      }
+      expect(content).toContain("Analyze the auth module.");
+      expect(content).toContain("SAFETY");
     } finally {
       stub.close();
     }

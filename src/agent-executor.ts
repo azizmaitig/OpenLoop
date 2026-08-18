@@ -15,6 +15,7 @@ import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
 import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
 import { getAgentServerManager } from './agent-server.js';
 import type { AgentServerManager } from './agent-server.js';
+import { buildDenylistPromptInstruction } from './constitution.js';
 
 /** How often the executor polls conversation status. */
 export const AGENT_POLL_INTERVAL_MS = 250;
@@ -65,15 +66,23 @@ export async function executeAgentPhase(
   let client: AgentServerClient | undefined;
   let conversationId: string | undefined;
 
+  // Workspace targeting (ADR-0023 decision 5): local (default) = the loop's
+  // working directory (the L2 git worktree when running L2); docker = /projects.
+  const workingDir = phase.workspace?.type === 'docker' ? '/projects' : process.cwd();
+  // Trust tier (decision 7): the denylist rides inside the prompt as the soft
+  // control — the loop's command guard cannot see agent actions.
+  const effectivePrompt = [phase.prompt.trim(), buildDenylistPromptInstruction(workingDir)].join('\n\n');
+
   try {
     client = await mgr.getClient(effectiveSignal);
     const conversation = await client.createConversation({
       model: phase.model,
       workspaceType: phase.workspace?.type,
+      workingDir,
     });
     conversationId = conversation.id;
 
-    await client.sendMessage(conversationId, phase.prompt);
+    await client.sendMessage(conversationId, effectivePrompt);
 
     for (;;) {
       if (effectiveSignal.aborted) {

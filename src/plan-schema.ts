@@ -55,6 +55,23 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
     }
   }
 
+  // Trust tier (ADR-0023 decision 7): the loop's own guards must bracket agent
+  // work — an agent task can neither ground the run nor self-verify.
+  const first = tasks[0];
+  if (first?.type === 'agent') {
+    errors.push({
+      rule: 'agent-grounding',
+      detail: `First task "${first.id}" is a type: agent task. Agent tasks cannot ground the run — the first task must be a command task (e.g. \`type STATE.md\`) so the loop's own guard is the plan's entry point.`,
+    });
+  }
+  const last = tasks[tasks.length - 1];
+  if (last?.type === 'agent') {
+    errors.push({
+      rule: 'agent-verify-gate',
+      detail: `Last task "${last.id}" is a type: agent task. Agent tasks cannot self-verify — the verify gate must be a command task (build/test/lint/verify).`,
+    });
+  }
+
   // Composites: validate their sub-phases too (they share the same field rules).
   if (doc.composites) {
     for (const composite of doc.composites) {
