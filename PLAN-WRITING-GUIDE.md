@@ -335,14 +335,30 @@ task, and L1 remains report-only: no agent task runs until a human enables L2.
 ### 3B.2 Sidecar configuration (`agentServer.*`)
 
 The sidecar is **loop-level config** (`LoopConfig.agentServer`, defaults in
-`src/config.ts`) — not a plan-YAML field:
+`src/config.ts`) — not a plan-YAML field. From the CLI it is set via
+`LOOP_AGENT_SERVER_*` environment variables (see the table). The env surface
+applies to `start` and daemon `--plan` runs; multi-loop `--loops-config`
+children require programmatic config (or the subprocess fallback, which
+inherits the env).
 
-| Key | Default | What it does |
+| Key / env var | Default | What it does |
 |-----|---------|--------------|
-| `agentServer.manage` | `true` | `true`: the loop lazily spawns and owns the sidecar (`uvx openhands-agent-server`, health-gated, bounded restart then ABORT). `false`: connect to a BYO server `url` with no process ownership (systemd/Docker-managed). |
-| `agentServer.url` | `http://127.0.0.1:8000` | Base URL of the Agent Server REST API. |
-| `agentServer.port` | `8000` | Port the spawned sidecar listens on (spawn arg when `manage: true`). |
-| `agentServer.defaults` | — | Server-level LLM defaults `{ provider, model }` (ADR-0023 d6, reserved). Per-task `model:` is the wired override today — the executor passes it to the conversation API. |
+| `agentServer.manage` / `LOOP_AGENT_SERVER_MANAGE` | `true` | `true`: the loop lazily spawns and owns the sidecar (`uvx --from openhands-agent-server agent-server[.exe]`, health-gated, bounded restart then ABORT). `false`: connect to a BYO server `url` with no process ownership (systemd/Docker-managed). |
+| `agentServer.url` / `LOOP_AGENT_SERVER_URL` | `http://127.0.0.1:8000` | Base URL of the Agent Server REST API. |
+| `agentServer.port` / `LOOP_AGENT_SERVER_PORT` | `8000` | Port the spawned sidecar listens on (spawn arg when `manage: true`). |
+| `agentServer.readyTimeoutMs` / `LOOP_AGENT_SERVER_READY_TIMEOUT_MS` | `5000` | How long a freshly spawned sidecar has to become healthy. Raise for slow cold starts (uvx installs, first container boot). |
+| `agentServer.maxRestarts` / `LOOP_AGENT_SERVER_MAX_RESTARTS` | `3` | Restart budget after the initial spawn before the loop ABORTs. |
+| `agentServer.defaults` / `LOOP_AGENT_SERVER_DEFAULTS_*` | — | Server-level LLM defaults for every agent conversation: `model`, `baseUrl`, `apiKey` (+ optional `provider`). **`model` must carry a LiteLLM-known provider prefix** — e.g. `openai/deepseek-v4-flash-free` with an OpenAI-compatible `baseUrl` (like the opencode compat shim, `scripts/opencode-compat-server.ts`). `apiKey` must be non-empty — LiteLLM refuses keyless requests even for keyless gateways (any dummy value works against a local shim). Per-task `model:` overrides the model part only. |
+
+Example (opencode serve + the compat shim, free DeepSeek V4 Flash):
+
+```powershell
+$env:LOOP_AGENT_SERVER_DEFAULTS_MODEL = "openai/deepseek-v4-flash-free"
+$env:LOOP_AGENT_SERVER_DEFAULTS_BASE_URL = "http://host.docker.internal:4097"
+$env:LOOP_AGENT_SERVER_DEFAULTS_API_KEY = "sk-none"
+$env:LOOP_AGENT_SERVER_READY_TIMEOUT_MS = "120000"
+bun run loop.ts start --plan plans/my-agent-plan.yaml
+```
 
 One sidecar is shared across all child loops (one conversation per loop). Docker tasks
 **always** provision their own containerized sidecar regardless of `manage` — one
