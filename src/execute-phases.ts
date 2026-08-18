@@ -208,9 +208,7 @@ async function runValidatorGate(
   let lastJudgment = initial;
   for (; retriesUsed < maxRetries; retriesUsed++) {
     if (signal?.aborted) break;
-    const rerun = phase.type === 'agent'
-      ? await executeAgentPhase(deps.config, phase, phase.timeoutMs, signal)
-      : await executeShellCommand(phase.command, phase.timeoutMs, signal);
+    const rerun = await executePhase(deps, phase, phase.timeoutMs, signal);
     if (rerun.status !== 'pass') {
       result = rerun; // real command failure -> propagate
       break;
@@ -232,6 +230,17 @@ async function runValidatorGate(
     retriesUsed,
   };
   return result; // status stays 'pass' (fail-open)
+}
+
+function executePhase(
+  deps: ExecutionDeps,
+  phase: PhaseDef,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<PhaseResult> {
+  return phase.type === 'agent'
+    ? executeAgentPhase(deps.config, phase, timeoutMs, signal)
+    : executeShellCommand(phase.command, timeoutMs, signal);
 }
 
 async function runSinglePhase(
@@ -268,9 +277,7 @@ async function runSinglePhase(
     order,
   }));
 
-  let result = phase.type === 'agent'
-    ? await executeAgentPhase(deps.config, phase, phase.timeoutMs, signal)
-    : await executeShellCommand(phase.command, phase.timeoutMs, signal);
+  let result = await executePhase(deps, phase, phase.timeoutMs, signal);
 
   // Apply output bounds — tail-cap stdout/stderr in memory, offload large output to disk
   const runName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName;

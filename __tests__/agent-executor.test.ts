@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopConfig, PhaseDef } from "../src/types.js";
 import { executeAgentPhase } from "../src/agent-executor.js";
-import { startAgentStub, createdConversationId } from "./helpers/agent-stub.js";
+import { startAgentStub } from "./helpers/agent-stub.js";
 import type { StubServer } from "./helpers/agent-stub.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function makeConfig(overrides?: Partial<LoopConfig>): LoopConfig {
 function runAgent(
   config: LoopConfig,
   phase: PhaseDef,
-  timeoutMs = 5000,
+  timeoutMs?: number,
   signal?: AbortSignal,
 ) {
   return executeAgentPhase(config, phase, timeoutMs, signal);
@@ -102,6 +102,23 @@ describe("executeAgentPhase", () => {
     }
   });
 
+  test("omitted timeoutMs falls back to config.phaseTimeoutMs — never polls forever", async () => {
+    const stub = startAgentStub(); // no terminalStatus — only the timeout stops it
+    try {
+      const result = await runAgent(
+        makeConfig({
+          phaseTimeoutMs: 100,
+          agentServer: { manage: true, url: stub.url, port: 8000 },
+        }),
+        makeAgentPhase({ timeoutMs: undefined }),
+      );
+      expect(result.status).toBe("error");
+      expect(result.stderr).toContain("timed out");
+    } finally {
+      stub.close();
+    }
+  });
+
   test("sends the phase prompt as the conversation message", async () => {
     const stub = startAgentStub({ terminalStatus: "finished" });
     try {
@@ -109,7 +126,7 @@ describe("executeAgentPhase", () => {
         makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
         makeAgentPhase({ prompt: "Do the thing now." }),
       );
-      const id = createdConversationId(stub);
+      const id = stub.createdId;
       expect(id).toBeDefined();
       const sent = stub.calls.find(
         (c) => c.method === "POST" && c.path === `/api/conversations/${id}/events`,
@@ -147,7 +164,7 @@ describe("executeAgentPhase", () => {
         makeConfig({ agentServer: { manage: true, url: stub.url, port: 8000 } }),
         makeAgentPhase(),
       );
-      const id = createdConversationId(stub);
+      const id = stub.createdId;
       expect(id).toBeDefined();
       expect(stub.calls.some((c) => c.method === "DELETE" && c.path === `/api/conversations/${id}`)).toBe(true);
       expect(stub.conversations.size).toBe(0);

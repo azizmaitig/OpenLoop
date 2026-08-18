@@ -28,7 +28,6 @@ export interface AgentEvent {
   type: string;
   source?: string;
   content?: string;
-  timestamp?: number;
 }
 
 export interface AgentConversation {
@@ -51,7 +50,13 @@ export interface AgentServerClient {
   deleteConversation(conversationId: string): Promise<void>;
 }
 
-export function createAgentServerClient(baseUrl: string): AgentServerClient {
+/** Cap on error-body snippets attached to non-2xx failures. */
+const ERROR_BODY_SNIPPET_MAX = 200;
+
+export function createAgentServerClient(
+  baseUrl: string,
+  signal?: AbortSignal,
+): AgentServerClient {
   const conversationUrl = (id?: string): string =>
     `${baseUrl}/api/conversations${id ? `/${encodeURIComponent(id)}` : ''}`;
 
@@ -62,13 +67,14 @@ export function createAgentServerClient(baseUrl: string): AgentServerClient {
         method,
         headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
       });
     } catch (err) {
       throw new Error(`Agent Server request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Agent Server ${method} ${url} failed (${res.status}): ${text.slice(0, 200)}`);
+      throw new Error(`Agent Server ${method} ${url} failed (${res.status}): ${text.slice(0, ERROR_BODY_SNIPPET_MAX)}`);
     }
     return (await res.json()) as T;
   }

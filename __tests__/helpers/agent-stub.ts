@@ -123,8 +123,3 @@ export function startAgentStub(behavior: StubBehavior = {}): StubServer {
     },
   };
 }
-
-/** Pull the conversation id the executor created (the first POST /api/conversations). */
-export function createdConversationId(stub: StubServer): string | undefined {
-  return stub.createdId;
-}
