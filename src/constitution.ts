@@ -34,8 +34,8 @@ const DENYLISTED_PATH_TOKENS = [
   'aws_access_key',
 ];
 
-function findDenylistedToken(command: string): string | null {
-  const lower = command.toLowerCase();
+function findDenylistedToken(value: string): string | null {
+  const lower = value.toLowerCase();
   for (const token of DENYLISTED_PATH_TOKENS) {
     if (lower.includes(token)) {
       return token;
@@ -116,7 +116,9 @@ export function checkPlanAgainstConstitution(
   }
 
   // Rule: denylisted paths must never appear in any command, healCommand,
-  // or agent prompt.
+  // or agent prompt — for tasks AND composite sub-phases (composite phases
+  // share the PlanYamlTask rules, so `type: agent` sub-phases are valid and
+  // their prompts must be scanned identically).
   for (const task of tasks) {
     checkFieldForDenylistedPath(task.command, task.id, 'Task', 'command', violations);
     checkFieldForDenylistedPath(task.healCommand, task.id, 'Task', 'healCommand', violations);
@@ -128,6 +130,7 @@ export function checkPlanAgainstConstitution(
         const label = `Composite "${composite.id}"`;
         checkFieldForDenylistedPath(phase.command, phase.id, label, 'command', violations);
         checkFieldForDenylistedPath(phase.healCommand, phase.id, label, 'healCommand', violations);
+        checkFieldForDenylistedPath(phase.prompt, phase.id, label, 'prompt', violations);
       }
     }
   }
