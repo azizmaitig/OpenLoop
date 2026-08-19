@@ -1,9 +1,13 @@
-import type { AgentServerConfig, LoopConfig } from './types.js';
+import type { AgentServerConfig, LoopConfig, OpenCodeServerConfig } from './types.js';
 
 export const DEFAULT_AGENT_SERVER_CONFIG: AgentServerConfig = {
   manage: true,
   url: 'http://127.0.0.1:8000',
   port: 8000,
+};
+
+export const DEFAULT_OPENCODE_SERVER_CONFIG: OpenCodeServerConfig = {
+  url: 'http://127.0.0.1:4096',
 };
 
 /**
@@ -50,6 +54,18 @@ export function agentServerFromEnv(): Partial<AgentServerConfig> {
   return out;
 }
 
+/**
+ * Read `opencodeServer.*` overrides from `LOOP_OPENCODE_SERVER_*` env vars —
+ * the CLI-facing surface for the opencode server URL (v11, ADR-0024).
+ */
+export function opencodeServerFromEnv(): Partial<OpenCodeServerConfig> {
+  const out: Partial<OpenCodeServerConfig> = {};
+  if (process.env.LOOP_OPENCODE_SERVER_URL !== undefined) {
+    out.url = process.env.LOOP_OPENCODE_SERVER_URL;
+  }
+  return out;
+}
+
 export const DEFAULT_CONFIG: LoopConfig = {
   maxIterations: 3,
   phaseTimeoutMs: 60000,
@@ -57,6 +73,7 @@ export const DEFAULT_CONFIG: LoopConfig = {
   phases: [],
   memory: { enabled: false },
   agentServer: DEFAULT_AGENT_SERVER_CONFIG,
+  opencodeServer: DEFAULT_OPENCODE_SERVER_CONFIG,
 };
 
 export function mergeConfig(
@@ -88,6 +105,16 @@ export function mergeConfig(
         ...overrideAgent?.defaults,
       };
     }
+  }
+
+  // Deep-merge opencodeServer the same way: a partial override fills the
+  // untouched keys from the defaults instead of clobbering them.
+  if (override.opencodeServer || base.opencodeServer) {
+    merged.opencodeServer = {
+      ...DEFAULT_OPENCODE_SERVER_CONFIG,
+      ...base.opencodeServer,
+      ...override.opencodeServer,
+    };
   }
 
   return merged;
