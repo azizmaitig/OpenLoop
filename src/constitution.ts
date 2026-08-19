@@ -14,16 +14,24 @@
 
 import type { PlanYamlDoc, PlanYamlTask } from './types.js';
 
-// Path tokens that must never appear in any task command (AGENTS.md).
-// Substring match on the command only (YAML comments are not parsed
-// into `command`, so a `PREREQUISITE: set .env` comment is safe).
-// `auth/` is used (not `author/`) so "author/" does not false-positive.
+// Path tokens that must never appear in any task command, healCommand, or
+// agent prompt (AGENTS.md). Substring match on the field only (YAML comments
+// are not parsed into `command`, so a `PREREQUISITE: set .env` comment is
+// safe). `auth/` is used (not `author/`) so "author/" does not false-positive.
+// The glob-like secret patterns `*.pem` / `*.key` are stored as `.pem` / `.key`
+// (leading dot, no `*`): the matcher is substring-based, so the `*` is dropped,
+// and the leading dot avoids false positives — "monkey" and "keyboard" contain
+// "key" but not ".key".
 const DENYLISTED_PATH_TOKENS = [
   '.env',
   'auth/',
   'payments/',
   'secrets/',
   'credentials/',
+  '.pem',
+  '.key',
+  'id_rsa',
+  'aws_access_key',
 ];
 
 function findDenylistedToken(command: string): string | null {
@@ -52,18 +60,19 @@ export function buildDenylistPromptInstruction(workingDir: string): string {
   ].join('\n');
 }
 
-function checkCommandForDenylistedPath(
-  command: string | undefined,
+function checkFieldForDenylistedPath(
+  value: string | undefined,
   taskId: string,
   source: string,
+  field: string,
   violations: ConstitutionViolation[],
 ): void {
-  if (!command) return;
-  const token = findDenylistedToken(command);
+  if (!value) return;
+  const token = findDenylistedToken(value);
   if (token !== null) {
     violations.push({
       rule: 'denylisted-path',
-      detail: `${source} "${taskId}" references denylisted path token "${token}".`,
+      detail: `${source} "${taskId}" ${field} references denylisted path token "${token}".`,
     });
   }
 }
@@ -106,17 +115,19 @@ export function checkPlanAgainstConstitution(
     });
   }
 
-  // Rule: denylisted paths must never appear in any command or healCommand.
+  // Rule: denylisted paths must never appear in any command, healCommand,
+  // or agent prompt.
   for (const task of tasks) {
-    checkCommandForDenylistedPath(task.command, task.id, 'Task', violations);
-    checkCommandForDenylistedPath(task.healCommand, task.id, 'Task', violations);
+    checkFieldForDenylistedPath(task.command, task.id, 'Task', 'command', violations);
+    checkFieldForDenylistedPath(task.healCommand, task.id, 'Task', 'healCommand', violations);
+    checkFieldForDenylistedPath(task.prompt, task.id, 'Task', 'prompt', violations);
   }
   if (doc.composites) {
     for (const composite of doc.composites) {
       for (const phase of composite.phases) {
         const label = `Composite "${composite.id}"`;
-        checkCommandForDenylistedPath(phase.command, phase.id, label, violations);
-        checkCommandForDenylistedPath(phase.healCommand, phase.id, label, violations);
+        checkFieldForDenylistedPath(phase.command, phase.id, label, 'command', violations);
+        checkFieldForDenylistedPath(phase.healCommand, phase.id, label, 'healCommand', violations);
       }
     }
   }
