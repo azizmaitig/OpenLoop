@@ -1,0 +1,45 @@
+planName: agent-calendar-design-test
+tasks:
+  - id: read-state
+    command: type "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\STATE.md"
+    timeoutMs: 5000
+    status: pass
+    durationMs: 48
+    completedAt: '2026-08-19T02:45:28.063Z'
+  - id: design-agent
+    type: agent
+    workspace:
+      type: docker
+    prompt: >-
+      You are a senior design auditor working on the calendar-app project. The repository is mounted at your working
+      directory — explore it with read commands only.
+
+      READ-ONLY TASK: do NOT create, edit, or delete any files. You are in L1 report-only mode; your deliverable is a
+      written design proposal returned as your final response.
+
+      SAFETY CONSTRAINT: never access or read .env, .env.*, auth/, payments/, secrets/, credentials/ paths.
+
+      Steps: 1. Read README.md, PRODUCT.md, DESIGN.md, DESIGN-AUDIT.md, then explore
+         the src/ layout (components, hooks, styles, App.tsx).
+      2. Produce a prioritized design audit (P0-P3) covering at minimum:
+         - Visual hierarchy and layout consistency
+         - Theming / dark mode (check DESIGN.md tokens vs actual usage)
+         - CSS token consistency (hardcoded values vs var() references)
+         - Accessibility (WCAG gaps: contrast, focus, aria)
+         - Performance (memoization, render work)
+         - Code organization (file size, naming, component boundaries)
+         For each finding: file:line, current code, recommended fix.
+      3. End with a concrete, ordered action plan (what to do first, why,
+         expected impact).
+
+      Deliver the full report as your final response.
+    timeoutMs: 900000
+    status: error
+    durationMs: 13542
+    completedAt: '2026-08-19T02:45:28.063Z'
+  - id: verify
+    command: bun test "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\__tests__\plan-schema.test.ts"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 171
+    completedAt: '2026-08-19T02:45:28.063Z'
