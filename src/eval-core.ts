@@ -30,7 +30,21 @@ export function buildLlmConfig(overrides?: Partial<LLMConfig>): LLMConfig | unde
   const apiKey = overrides?.apiKey || Bun.env.LLM_API_KEY || '';
   const model = overrides?.model || Bun.env.LLM_MODEL || '';
 
-  if (!provider || !apiKey || !model) return undefined;
+  if (!provider) return undefined;
+  // The opencode provider needs no key/model — it runs the local opencode
+  // CLI (own auth + pinned model). Requiring them forced a .env dependency
+  // that loop.ts never loads, silently dropping every opencode eval to the
+  // exit-code fallback (found 2026-08-19 on the real calendar audit run).
+  if (provider === 'opencode') {
+    return {
+      provider,
+      temperature: overrides?.temperature ?? 0,
+      endpoint: overrides?.endpoint,
+      maxTokens: overrides?.maxTokens,
+      opencodeAgent: overrides?.opencodeAgent,
+    };
+  }
+  if (!apiKey || !model) return undefined;
 
   return {
     provider,

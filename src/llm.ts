@@ -134,8 +134,12 @@ async function callOpenCode(
   // Attach to the running `opencode serve` (OPENCODE_SERVER_URL, default
   // 127.0.0.1:4096) — without --attach every run cold-boots its own server
   // + MCP, hanging for minutes (measured 2026-08-19: 13s attached vs >300s).
+  // The prompt rides stdin (Get-Content | opencode run): PowerShell 5.1's
+  // native-arg quoting mangles backslash-escaped quotes in a substituted
+  // argument, so opencode received no message and printed usage (verified
+  // 2026-08-19 with the real calendar audit prompt).
   const serverUrl = Bun.env.OPENCODE_SERVER_URL ?? 'http://127.0.0.1:4096';
-  const psCmd = `opencode run (Get-Content -Raw '${tmpFile}') --model opencode/deepseek-v4-flash-free --variant max --attach ${serverUrl} --format json --no-replay --auto${agent ? ` --agent ${agent}` : ''}`;
+  const psCmd = `Get-Content -Raw '${tmpFile}' | opencode run --model opencode/deepseek-v4-flash-free --variant max --attach ${serverUrl} --format json --no-replay --auto${agent ? ` --agent ${agent}` : ''}`;
   const proc = Bun.spawn(['powershell', '-NoProfile', '-Command', psCmd], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });

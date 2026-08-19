@@ -1,0 +1,55 @@
+planName: calendar-design-audit-real
+tasks:
+  - id: read-state
+    command: type "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\STATE.md"
+    timeoutMs: 5000
+    status: pass
+    durationMs: 30
+    completedAt: '2026-08-19T12:37:11.887Z'
+  - id: scan-reality
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\scripts\scan-reality.ps1" -TargetDir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 30000
+    status: pass
+    durationMs: 396
+    completedAt: '2026-08-19T12:37:11.887Z'
+  - id: llm-design-audit
+    command: >-
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\agent-loop\scripts\scan-reality.ps1" -TargetDir "D:\projects\obsidian\second
+      brain\10-Projects\11-Active\calendar-app"
+    timeoutMs: 60000
+    llm:
+      provider: opencode
+      prompt: >-
+        You are a design audit specialist for the calendar-app (React/TS, Vite). You are given the output of a real scan
+        of src/App.css (stats, hardcoded hex colors, oklch() usages, var() references, [data-theme] dark overrides, and
+        any further sections the scan reports: raw durations, App.tsx hooks usage, etc.).
+
+        Produce a prioritized design audit (P0-P3) grounded ONLY in the scan data — never invent file:line numbers or
+        code you cannot see. Cover at minimum: 1) COLOR TOKENS — hardcoded colors that should be var(--*) tokens 2)
+        THEMING — [data-theme] overrides that could consolidate 3) DURATIONS/MOTION — raw transition durations missing
+           var(--duration-*) tokens
+        4) CSS ORGANIZATION — file size (1166+ lines), duplication 5) PERFORMANCE — App.tsx hook usage
+        (useCallback/useMemo/React.memo)
+
+        Return ONLY valid JSON: {
+          "passed": boolean,
+          "reason": "Markdown report with concrete findings tied to the scan
+                     numbers (e.g. '32 [data-theme] selectors — 12 duplicate
+                     the base palette'), each with a recommended fix and
+                     expected impact, ordered P0 to P3",
+          "confidence": 0-1
+        }
+      confidence: 0-1
+    status: pass
+    durationMs: 387
+    completedAt: '2026-08-19T12:37:11.887Z'
+  - id: verify
+    command: bun test "D:\projects\obsidian\second brain\10-Projects\11-Active\agent-loop\__tests__\plan-schema.test.ts"
+    timeoutMs: 120000
+    status: pass
+    durationMs: 96
+    completedAt: '2026-08-19T12:37:11.887Z'
