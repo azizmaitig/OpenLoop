@@ -346,9 +346,11 @@ inherits the env).
 | `agentServer.manage` / `LOOP_AGENT_SERVER_MANAGE` | `true` | `true`: the loop lazily spawns and owns the sidecar (`uvx --from openhands-agent-server agent-server[.exe]`, health-gated, bounded restart then ABORT). `false`: connect to a BYO server `url` with no process ownership (systemd/Docker-managed). |
 | `agentServer.url` / `LOOP_AGENT_SERVER_URL` | `http://127.0.0.1:8000` | Base URL of the Agent Server REST API. |
 | `agentServer.port` / `LOOP_AGENT_SERVER_PORT` | `8000` | Port the spawned sidecar listens on (spawn arg when `manage: true`). |
-| `agentServer.readyTimeoutMs` / `LOOP_AGENT_SERVER_READY_TIMEOUT_MS` | `5000` | How long a freshly spawned sidecar has to become healthy. Raise for slow cold starts (uvx installs, first container boot). |
+| `agentServer.readyTimeoutMs` / `LOOP_AGENT_SERVER_READY_TIMEOUT_MS` | `20000` | How long a freshly spawned sidecar has to become healthy. The 5s default failed on Windows Docker Desktop (port wiring takes ~8s+, measured 2026-08-19); raise further for uvx cold installs. |
 | `agentServer.maxRestarts` / `LOOP_AGENT_SERVER_MAX_RESTARTS` | `3` | Restart budget after the initial spawn before the loop ABORTs. |
 | `agentServer.defaults` / `LOOP_AGENT_SERVER_DEFAULTS_*` | — | Server-level LLM defaults for every agent conversation: `model`, `baseUrl`, `apiKey` (+ optional `provider`). **`model` must carry a LiteLLM-known provider prefix** — e.g. `openai/deepseek-v4-flash-free` with an OpenAI-compatible `baseUrl` (like the opencode compat shim, `scripts/opencode-compat-server.ts`). `apiKey` must be non-empty — LiteLLM refuses keyless requests even for keyless gateways (any dummy value works against a local shim). Per-task `model:` overrides the model part only. |
+
+Operational notes (found by the real-server test, 2026-08-19): **`baseUrl` must be the provider's API root — LiteLLM does not append `/v1`** (`https://api.example.com/v1` for OpenAI-compatible providers, or the request 404s). **Providers retire models**: NVIDIA returned `410 Gone` for `deepseek-ai/deepseek-v4-flash` (EOL 2026-08-07) — use the dated snapshot (`deepseek-ai/deepseek-v4-flash-0731`) and re-check the provider catalog when a conversation errors with 4xx. |
 
 Example (opencode serve + the compat shim, free DeepSeek V4 Flash):
 

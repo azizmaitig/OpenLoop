@@ -44,7 +44,10 @@ export interface AgentServerManagerOptions {
 }
 
 const DEFAULT_OPTIONS: Required<AgentServerManagerOptions> = {
-  readyTimeoutMs: 5000,
+  // 20s, not 5s: Docker Desktop on Windows takes ~8s+ to wire the random
+  // host port after `docker run` (measured 2026-08-19) — 5s made every
+  // docker workspace spawn fail the health gate.
+  readyTimeoutMs: 20000,
   pollIntervalMs: 250,
   maxRestarts: 3,
 };

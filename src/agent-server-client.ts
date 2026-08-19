@@ -116,6 +116,15 @@ export function createAgentServerClient(
             ...(params.llm.baseUrl ? { base_url: params.llm.baseUrl } : {}),
             ...(params.llm.apiKey ? { api_key: params.llm.apiKey } : {}),
           },
+          // The server defaults to ONLY FinishTool + ThinkTool — an agent
+          // without file/command tools cannot do real work (verified against
+          // the live server, 2026-08-19: "Loaded 0 tools from spec"). The SDK
+          // docs' standard set: TerminalTool + FileEditorTool + TaskTrackerTool.
+          tools: [
+            { name: 'TerminalTool', params: { working_dir: params.workingDir } },
+            { name: 'FileEditorTool', params: { working_dir: params.workingDir } },
+            { name: 'TaskTrackerTool', params: { working_dir: params.workingDir } },
+          ],
         };
       }
       const res = await request<{
