@@ -31,6 +31,7 @@ import { StateMachine } from './src/state-machine.js';
 import { applyTransition } from './src/transition.js';
 import { runLoop } from './src/loop-runner.js';
 import { DEFAULT_AGENT_SERVER_CONFIG, agentServerFromEnv } from './src/config.js';
+import { PLAN_EXECUTOR_PLUGIN } from './src/plan-config.js';
 
 /** Merge LOOP_AGENT_SERVER_* env overrides into a loop config (CLI-facing sidecar surface). */
 function withAgentServerEnv(config: LoopConfig): LoopConfig {
@@ -128,7 +129,7 @@ async function main(): Promise<void> {
       planConfig = {
         ...planConfig,
         planPath: parsed.planPath,
-        plugins: [...(planConfig.plugins ?? []), './src/plan-executor.ts'],
+        plugins: [...(planConfig.plugins ?? []), PLAN_EXECUTOR_PLUGIN],
         daemon: planConfig.daemon ?? { intervalMs: 60000, port },
       };
       // Pre-load plan phases so runTick picks them up directly
@@ -208,7 +209,7 @@ async function main(): Promise<void> {
     config.plugins = parsed.pluginPaths.split(',').map(s => s.trim());
   }
   if (parsed.planPath) {
-    config.plugins = [...(config.plugins ?? []), './src/plan-executor.ts'];
+    config.plugins = [...(config.plugins ?? []), PLAN_EXECUTOR_PLUGIN];
     config.planPath = parsed.planPath;
   }
   if (parsed.port !== undefined) {

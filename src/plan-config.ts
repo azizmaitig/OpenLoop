@@ -7,9 +7,21 @@
  * LoopConfig with maxIterations: 1 (single-run).
  */
 
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
 import type { LoopConfig } from './types.js';
 import { loadPlugins } from './plugins.js';
 import type { Plugin } from './plugins.js';
+
+/**
+ * Absolute path to the plan-executor plugin module. Resolved from this
+ * module's own location (import.meta.url) so plan mode works from ANY cwd —
+ * a relative './src/plan-executor.ts' resolved against process.cwd() broke
+ * plan runs launched from outside the repo (found by real-server test,
+ * 2026-08-19).
+ */
+export const PLAN_EXECUTOR_PLUGIN = join(dirname(fileURLToPath(import.meta.url)), 'plan-executor.ts');
 
 export interface ResolvePlanConfigOpts {
   intervalMs?: number;
@@ -34,7 +46,7 @@ export async function resolvePlanConfig(
     phaseTimeoutMs: 60000,
     phases: [],
     planPath,
-    plugins: ['./src/plan-executor.ts'],
+    plugins: [PLAN_EXECUTOR_PLUGIN],
     daemon: { intervalMs: opts?.intervalMs ?? 60000, port: opts?.port },
   };
 
