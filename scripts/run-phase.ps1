@@ -43,10 +43,10 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $cleanup | Out
 trap { Kill-ChildTree -pidToKill $childPid; break }
 
 try {
-    # Launch opencode as a tracked process (DeepSeek V4 Flash Free, high reasoning mode)
+    # Launch opencode as a tracked process (DeepSeek V4 Flash Free, max reasoning mode)
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "opencode"
-    $psi.Arguments = "run `"$tmpFile`" --model opencode/deepseek-v4-flash-free --variant high --auto"
+    $psi.Arguments = "run `"$tmpFile`" --model opencode/deepseek-v4-flash-free --variant max --auto"
     $psi.UseShellExecute = $true
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi

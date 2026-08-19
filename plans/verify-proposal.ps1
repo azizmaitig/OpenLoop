@@ -74,7 +74,7 @@ if ([string]::IsNullOrWhiteSpace($patchContent)) {
 }
 
 # Scope B guard: patch must never target locked paths.
-$locked = @('agent-loop/src/', 'spec-factory/')
+$locked = @('agent-loop/src/', 'spec-factory/', '12-active loop/')
 $bad = $locked | Where-Object { $patchContent -match [regex]::Escape($_) }
 if ($bad.Count -gt 0) {
     Write-Error "VERIFY-PROPOSAL: FAIL - patch touches locked path(s): $($bad -join ', '). Scope B forbids editing engine/src or spec-factory content."

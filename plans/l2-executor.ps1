@@ -1,4 +1,4 @@
-# l2-executor.ps1 -- L2 (spec-execution loop) executor for the spec-factory prototype.
+﻿# l2-executor.ps1 -- L2 (spec-execution loop) executor for the spec-factory prototype.
 #
 # Runs as a phase command under agent-loop's plan-executor. The engine shells out
 # to this script with a -Stage flag; each stage is one plan phase (sequential).
@@ -59,7 +59,7 @@ function Discover-N {
         Sort-Object Name -Descending | Select-Object -First 1
     if (-not $ev) { throw "No evolve-N.md found in $Specs" }
     $txt = Get-Content -LiteralPath $ev.FullName -Raw
-    $m = [regex]::Match($txt, 'specs/(\d{3}-[A-Za-z0-9-]+)/')
+    $m = [regex]::Match($txt, '(\d{3}-[A-Za-z0-9-]+)[\\/]')
     if (-not $m.Success) { throw "evolve file $($ev.Name) does not reference specs/<increment>" }
     $inc = $m.Groups[1].Value
     $n   = Parse-N $inc
@@ -74,7 +74,7 @@ function Read-Lease {
     return @{ Raw = $raw; N = $n }
 }
 
-# ── SHARED RUN LOG (L3 evolve-pass evidence, ADR-0019 §3/§4) ──────────────────
+# â”€â”€ SHARED RUN LOG (L3 evolve-pass evidence, ADR-0019 Â§3/Â§4) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Append one line to the agent-loop root run log so the L3 evolve pass can
 # correlate "L1 drafted N" with "L2 built/rejected N". Append-only; never
 # rewrites the file. Format: {ts, loop:L2, spec_N:<N>, event:<ev>, detail:<d>}
@@ -89,14 +89,14 @@ function Log-Run ([string]$N, [string]$Event, [string]$Detail = '') {
 }
 
 # Resolve the increment directory name for a given N from the evolve-N.md body.
-# Does NOT depend on Read-Lease or Discover-N — pure lookup by N.
+# Does NOT depend on Read-Lease or Discover-N â€” pure lookup by N.
 # Returns e.g. "003-watchdir-trigger".
 function Resolve-IncrementDir ([string]$N) {
     $ev = Get-ChildItem -LiteralPath $Specs -File -Filter "evolve-$N*.md" -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if (-not $ev) { throw "No evolve-$N.md found to resolve increment directory" }
     $txt = Get-Content -LiteralPath $ev.FullName -Raw
-    $m = [regex]::Match($txt, 'specs/(\d{3}-[A-Za-z0-9-]+)/')
+    $m = [regex]::Match($txt, '(\d{3}-[A-Za-z0-9-]+)[\\/]')
     if (-not $m.Success) { throw "evolve-$N.md does not reference specs/<increment>" }
     return $m.Groups[1].Value
 }
@@ -106,13 +106,13 @@ switch ($Stage) {
         $d = Discover-N
         $lease = Join-Path $Specs 'current-increment.txt'
 
-        # ── COLLISION GATE (Issue 4) ──────────────────────────────────────────
+        # â”€â”€ COLLISION GATE (Issue 4) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # If a lease already exists AND it names the SAME increment N that this
         # scan wants to claim, two L2 scans are racing the same number. The
         # second scan must ESCALATE (human gate): write collision-<N>.alert,
         # exit non-zero, and must NOT overwrite the existing lease.
         # If the existing lease is for a LOWER increment, this is a new
-        # increment (normal operation) — overwrite is allowed. N is parsed via
+        # increment (normal operation) â€” overwrite is allowed. N is parsed via
         # Parse-N so the rich "N|<path>|role=|ttl=" lease shape is compared by
         # the numeric increment, not the raw whole token.
         if (Test-Path -LiteralPath $lease) {
@@ -163,7 +163,7 @@ switch ($Stage) {
 
         # 1. Copy spec artifacts into the worktree so speckit.implement can read them.
         $incName = Resolve-IncrementDir $l.N
-        $incDir = Join-Path $Specs $incName
+        $incDir = Join-Path $ProtoRoot $incName
         if (Test-Path -LiteralPath $incDir) {
             Copy-Item -LiteralPath $incDir -Destination $wt -Recurse -Force
             Write-Host "  copied increment $incName spec to worktree"
@@ -251,13 +251,13 @@ switch ($Stage) {
         $marker = Join-Path $wt "IMPLEMENTED.md"
         if (-not (Test-Path -LiteralPath $marker)) {
             # Gate rejected: verifier could not confirm the build. Record the
-            # rejection signal for the L3 evolve pass (ADR-0019 §4) and fail loud.
+            # rejection signal for the L3 evolve pass (ADR-0019 Â§4) and fail loud.
             Log-Run $l.N 'rejected' "verify: IMPLEMENTED.md not found in worktree $wt"
             throw "verify: IMPLEMENTED.md not found in worktree $wt"
         }
         $l2 = Read-Lease
         $incName = Resolve-IncrementDir $l2.N
-        $incDir = Join-Path $Specs $incName
+        $incDir = Join-Path $ProtoRoot $incName
         $convergeMarker = Join-Path $incDir 'converge-passed.md'
         Set-Content -LiteralPath $convergeMarker -Value "# converge gate passed`n`nIncrement $incName converged." -NoNewline
         Write-Host "VERIFY passed for N=$($l2.N)"
@@ -267,7 +267,7 @@ switch ($Stage) {
         $l = if ($N) { @{ N = $N } } else { Read-Lease }
         $stamp = Join-Path $Specs "built-$($l.N)"
         Set-Content -LiteralPath $stamp -Value "built-$($l.N) completed $(Get-Date -UFormat '+%Y-%m-%dT%H:%M:%S')" -NoNewline
-        # Success signal for the L3 evolve pass (ADR-0019 §4): L2 built N.
+        # Success signal for the L3 evolve pass (ADR-0019 Â§4): L2 built N.
         Log-Run $l.N 'built'
         Write-Host "STAMPED built-$($l.N)"
     }
@@ -279,7 +279,7 @@ switch ($Stage) {
         if (-not (Test-Path -LiteralPath $lease)) { throw 'verify-done: lease missing' }
         if (-not (Test-Path -LiteralPath $stamp)) { throw "verify-done: built-$($l.N) missing" }
         $incName = Resolve-IncrementDir $l.N
-        $incDir = Join-Path $Specs $incName
+        $incDir = Join-Path $ProtoRoot $incName
         $marker = Join-Path $incDir 'converge-passed.md'
         if (-not (Test-Path -LiteralPath $marker)) { throw "verify-done: converge-passed.md missing for $($l.N)" }
         Write-Host "VERIFY-DONE: lease + stamp + converge gate all present for N=$($l.N)"
@@ -287,3 +287,5 @@ switch ($Stage) {
 
     default { throw "Unknown -Stage '$Stage'" }
 }
+
+

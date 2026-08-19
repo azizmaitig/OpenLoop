@@ -318,8 +318,8 @@ export async function handleDashboardApi(
 
   // GET /api/specs — list specs from spec-factory
   if (url.pathname === '/api/specs') {
-    const specDir = process.env.SPEC_FACTORY_DIR || join(basename(api.baseDir), '..', 'parallel loops', 'spec-factory', 'specs');
-    const fullSpecDir = join(api.baseDir, '..', 'parallel loops', 'spec-factory', 'specs');
+    const specDir = process.env.SPEC_FACTORY_DIR || join(basename(api.baseDir), '..', '..', '12-active loop');
+    const fullSpecDir = join(api.baseDir, '..', '..', '12-active loop');
     try {
       const entries = (await readdir(fullSpecDir, { withFileTypes: true })).filter((d) => d.isDirectory() && /^\d{3}-/.test(d.name));
       const specs = [];

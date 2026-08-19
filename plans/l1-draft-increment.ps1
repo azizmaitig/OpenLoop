@@ -100,6 +100,7 @@ Write-Host "L1 DRAFT: running speckit chain for idea -> '$idea'"
 # steps. Three separate `opencode run` calls each spawn a fresh agent with no memory
 # of the prior step — /speckit.plan won't find the spec it just wrote, etc.
 # Single prompt avoids that and saves ~2× LLM startup overhead.
+$projectRoot = Split-Path $specs -Parent   # loop outputs root (12-active loop)
 Push-Location -LiteralPath $workspace
 try {
     $chainPrompt = @"
@@ -110,7 +111,18 @@ Step 1 — /speckit.specify $idea
 Step 2 — /speckit.plan
 Step 3 — /speckit.tasks
 
-Write all outputs into the $specs directory.
+Write all spec/plan/tasks output files into a NEW increment folder under:
+$projectRoot
+The increment folder MUST be named <NNN>-<slug> (e.g. 005-my-feature) where
+NNN is the next number after the highest existing <NNN>-* folder in $projectRoot
+(zero-padded to 3 digits). If none exist, start at 001.
+
+Then write the L1 checkpoint file directly into $specs named evolve-<NNN>.md
+(same NNN, e.g. evolve-005.md). The evolve-<NNN>.md MUST contain a line that
+references the increment folder in this exact form: specs/<NNN>-<slug>/
+so the L2 executor can locate it. L2 parses the <NNN>-<slug> token from that
+reference. This evolve-<NNN>.md file is the L1 -> L2 handoff contract — it
+MUST exist or the cycle fails.
 "@
     & $Opencode run --auto $chainPrompt
     $chainExit = $LASTEXITCODE

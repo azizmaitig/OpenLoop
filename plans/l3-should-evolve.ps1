@@ -58,20 +58,72 @@ function Log-Run ([string]$N, [string]$Event, [string]$Detail = '') {
 }
 
 # One log line -> parsed fields, or $null if the line is malformed.
+# Handles two formats:
+#   (1) Old:  {ts:2026-..., loop:L1, spec_N:1, event:drafted, detail:...}
+#   (2) JSON: {"run_id":"...","pattern":"l1-spec-writer","outcome":"fail","timestamp":"..."}
 function Parse-Line ([string]$Raw) {
-    $m = [regex]::Match($Raw, '^\{ts:([^,]+), loop:(L1|L2|L3), spec_N:(\d+|-), event:([\w-]+)(?:, detail:(.*))?\}$')
-    if (-not $m.Success) { return $null }
-    return @{
-        ts      = $m.Groups[1].Value
-        loop    = $m.Groups[2].Value
-        spec_N  = $m.Groups[3].Value
-        event   = $m.Groups[4].Value
-        detail  = if ($m.Groups[5].Success) { $m.Groups[5].Value } else { '' }
+    $trimmed = $Raw.Trim()
+    if (-not $trimmed -or -not $trimmed.StartsWith('{')) { return $null }
+
+    # (1) Try old {ts:...} format first
+    $m = [regex]::Match($trimmed, '^\{ts:([^,]+), loop:(L1|L2|L3), spec_N:(\d+|-), event:([\w-]+)(?:, detail:(.*))?\}$')
+    if ($m.Success) {
+        return @{
+            ts      = $m.Groups[1].Value
+            loop    = $m.Groups[2].Value
+            spec_N  = $m.Groups[3].Value
+            event   = $m.Groups[4].Value
+            detail  = if ($m.Groups[5].Success) { $m.Groups[5].Value } else { '' }
+        }
+    }
+
+    # (2) Try JSON format
+    try {
+        $json = $trimmed | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $json -or -not $json.pattern -or -not $json.outcome) { return $null }
+
+        # Map pattern prefix to loop level
+        $loop = if ($json.pattern -match '^l1-') { 'L1' }
+              elseif ($json.pattern -match '^l2-') { 'L2' }
+              elseif ($json.pattern -match '^(l3-|spec-evolve)') { 'L3' }
+              else { 'L1' }
+
+         # Map outcome to event label and spec_N.
+         # JSON entries don't have a per-spec number, but consecutive failures of
+         # the same pattern (e.g. spec-executor) are a valid rejection streak —
+         # use the pattern name as spec_N so the same-pattern streak detector fires.
+         $event = if ($json.outcome -eq 'pass') { 'built' }
+                elseif ($json.outcome -eq 'fail' -or $json.outcome -eq 'error') { 'rejected' }
+                elseif ($json.outcome -eq 'paused' -or $json.outcome -eq 'budget_exit') { 'idle' }
+                else { 'rejected' }
+
+         # For failures, use pattern name as spec_N so same-pattern streaks are detected.
+         # For success/idle, spec_N stays '-' (no per-spec tracking in JSON).
+         $specN = if ($event -eq 'rejected') { $json.pattern } else { '-' }
+
+         return @{
+             ts      = if ($json.timestamp) { $json.timestamp } else { $json.run_id }
+             loop    = $loop
+             spec_N  = $specN
+             event   = $event
+             detail  = "json:pattern=$($json.pattern),outcome=$($json.outcome)"
+         }
+    } catch {
+        return $null
     }
 }
 
+# Read log and split any concatenated entries (old {ts:...} entries are written
+# with NoNewline, so they may share a line with a following JSON entry).
 $lines = if (Test-Path -LiteralPath $logPath) {
-    @(Get-Content -LiteralPath $logPath -Encoding UTF8 | Where-Object { $_.Trim().Length -gt 0 })
+    @(
+        Get-Content -LiteralPath $logPath -Encoding UTF8 |
+        Where-Object { $_.Trim().Length -gt 0 } |
+        ForEach-Object {
+            [regex]::Split($_.Trim(), '(?<=})\s*(?={)') |
+            Where-Object { $_.Trim().Length -gt 0 }
+        }
+    )
 } else { @() }
 
 # ---- (b) MIN-RUNS: L1 runs since the last evolved-proposal marker ----

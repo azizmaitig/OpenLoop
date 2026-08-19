@@ -92,7 +92,7 @@ function Start-LoopDaemon ([string]$Label) {
 if ($Mode -eq 'Status') {
     Write-Host ""
     Write-Host "=== Spec Loop Status ==="
-    $specsDir = "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs"
+    $specsDir = "D:\projects\obsidian\second brain\10-Projects\12-active loop\specs"
     Write-Host ("Loop root: $root")
     Write-Host ""
     foreach ($label in @('L1','L2','L3')) {
@@ -138,7 +138,7 @@ Write-Host ""
 Write-Host "=== Spec Loop  up ==="
 Write-Host "Mode: $Mode"
 if ($Mode -eq 'New' -and $Idea) {
-    $inbox = "D:\projects\obsidian\second brain\10-Projects\11-Active\parallel loops\spec-factory\specs\ideas\inbox.md"
+    $inbox = "D:\projects\obsidian\second brain\10-Projects\12-active loop\specs\ideas\inbox.md"
     $inboxDir = Split-Path -Parent $inbox
     if (-not (Test-Path -LiteralPath $inboxDir)) { New-Item -ItemType Directory -Path $inboxDir -Force | Out-Null }
     Add-Content -LiteralPath $inbox -Value "`n$Idea" -Encoding UTF8 -NoNewline
