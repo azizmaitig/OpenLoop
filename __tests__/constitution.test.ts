@@ -248,6 +248,40 @@ describe("checkPlanAgainstConstitution", () => {
     expect(denylisted.some((x) => x.detail.includes('"agent-leak" prompt'))).toBe(true);
   });
 
+  test("flags denylisted token in a composite agent sub-phase prompt", () => {
+    // Composite phases share the PlanYamlTask rules (plan-schema validates
+    // `type: agent` sub-phases with missing-agent-prompt), so their prompts
+    // must be scanned with the same symmetry as task prompts.
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+      composites: [
+        {
+          id: "agent-step",
+          phases: [
+            {
+              id: "agent",
+              type: "agent",
+              prompt: "Edit .env and report the diff.",
+              timeoutMs: 30000,
+            },
+          ],
+        },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(
+      v.some(
+        (x) =>
+          x.rule === "denylisted-path" &&
+          x.detail.includes('Composite "agent-step" "agent" prompt'),
+      ),
+    ).toBe(true);
+  });
+
   // ── Gap #5: secret patterns (*.pem, *.key, id_rsa, aws_access_key) ──────────
 
   test("flags *.pem token in a command", () => {
