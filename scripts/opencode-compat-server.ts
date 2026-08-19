@@ -11,11 +11,11 @@
  *
  * Run:    bun scripts/opencode-compat-server.ts [--port 4097]
  * Env:    OPENCODE_SERVER_URL (default http://127.0.0.1:4096)
- *         OPENCODE_SHIM_MODEL (default openai/deepseek-v4-flash-free)
+ *         OPENCODE_SHIM_MODEL (default opencode/deepseek-v4-flash-free)
  *
- * The default model mirrors the LiteLLM prefix the agent-server sends
- * (`openai/...` for OpenAI-compatible endpoints); opencode serve resolves
- * the actual model by its id.
+ * The provider half of the request model is always mapped to the shim's own
+ * provider (opencode serve 500s on unknown providers, e.g. LiteLLM's
+ * "openai/..." routing prefix) — only the model id is passed through.
  *
  * Auth is ignored (the shim is loopback; opencode serve handles its own auth).
  * streaming is not supported — the agent-server uses non-stream completions.
@@ -31,7 +31,7 @@ function parsePort(argv: string[]): number {
 
 const PORT = parsePort(process.argv);
 const OPCODE_URL = process.env.OPENCODE_SERVER_URL ?? 'http://127.0.0.1:4096';
-const SHIM_MODEL = process.env.OPENCODE_SHIM_MODEL ?? 'openai/deepseek-v4-flash-free';
+const SHIM_MODEL = process.env.OPENCODE_SHIM_MODEL ?? 'opencode/deepseek-v4-flash-free';
 
 interface ChatMessage {
   role: string;
@@ -53,13 +53,13 @@ interface OpenCodeMessageResult {
 }
 
 function resolveModel(requested: string): { providerID: string; modelID: string } {
-  const m = requested ?? '';
-  if (m.includes('/')) {
-    const [providerID, modelID] = m.split('/');
-    return { providerID, modelID };
-  }
-  const [providerID, modelID] = SHIM_MODEL.split('/');
-  return { providerID, modelID: m || modelID };
+  const m = (requested ?? '').trim() || SHIM_MODEL;
+  // The agent-server sends a LiteLLM-routed id (e.g. "openai/deepseek-v4-flash-free");
+  // opencode serve only knows ITS providers — strip any routing prefix and use the
+  // shim's own provider (verified: opencode serve 500s on unknown providers).
+  const lastSlash = m.lastIndexOf('/');
+  const modelID = lastSlash === -1 ? m : m.slice(lastSlash + 1);
+  return { providerID: SHIM_MODEL.split('/')[0], modelID };
 }
 
 function messageText(msg: ChatMessage): string {
