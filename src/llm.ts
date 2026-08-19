@@ -45,12 +45,14 @@ async function callOpenAI(
     ? `${baseUrl}/v1/chat/completions`
     : 'https://api.openai.com/v1/chat/completions';
 
+  // NVIDIA NIM (and some OpenAI-compatible gateways) reject a separate
+  // `role: system` message (400 "missing field content", verified 2026-08-19
+  // against deepseek-ai/deepseek-v4-flash-0731) — fold the system prompt
+  // into the user message instead. Anthropic keeps its native system param.
+  const userContent = system ? `${system}\n\n${prompt}` : prompt;
   const body: Record<string, unknown> = {
     model: config.model,
-    messages: [
-      ...(system ? [{ role: 'system' as const, content: system }] : []),
-      { role: 'user' as const, content: prompt },
-    ],
+    messages: [{ role: 'user' as const, content: userContent }],
     max_tokens: maxTokens,
   };
   if (config.temperature !== undefined) body.temperature = config.temperature;
@@ -129,7 +131,11 @@ async function callOpenCode(
   await Bun.write(tmpFile, prompt);
   // Force flush: read back what we wrote so PowerShell sees the data
   await Bun.file(tmpFile).text();
-  const psCmd = `opencode run (Get-Content -Raw '${tmpFile}') --format json --no-replay --auto${agent ? ` --agent ${agent}` : ''}`;
+  // Attach to the running `opencode serve` (OPENCODE_SERVER_URL, default
+  // 127.0.0.1:4096) — without --attach every run cold-boots its own server
+  // + MCP, hanging for minutes (measured 2026-08-19: 13s attached vs >300s).
+  const serverUrl = Bun.env.OPENCODE_SERVER_URL ?? 'http://127.0.0.1:4096';
+  const psCmd = `opencode run (Get-Content -Raw '${tmpFile}') --model opencode/deepseek-v4-flash-free --variant max --attach ${serverUrl} --format json --no-replay --auto${agent ? ` --agent ${agent}` : ''}`;
   const proc = Bun.spawn(['powershell', '-NoProfile', '-Command', psCmd], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
