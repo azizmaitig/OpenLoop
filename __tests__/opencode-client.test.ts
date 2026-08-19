@@ -21,6 +21,8 @@ interface StubCall {
 interface StubBehavior {
   /** Respond 500 to GET /api/health (default healthy). */
   healthy?: boolean;
+  /** Respond 200 with { healthy: false } — payload, not status, is the contract. */
+  healthyBodyFalse?: boolean;
   /** Never respond to GET /api/health — proves the client's probe is time-bounded. */
   hangHealth?: boolean;
   /** Respond 500 to POST /session. */
@@ -60,6 +62,9 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
         if (behavior.hangHealth) {
           // Never respond — the client's AbortSignal.timeout must bound the probe.
           return new Promise<Response>(() => {});
+        }
+        if (behavior.healthyBodyFalse) {
+          return Response.json({ healthy: false });
         }
         return behavior.healthy === false
           ? Response.json({ healthy: false }, { status: 500 })
@@ -134,6 +139,31 @@ describe("createOpenCodeClient", () => {
     try {
       const client = createOpenCodeClient(stub.url);
       expect(await client.checkHealth()).toBe(false);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("checkHealth returns false on 200 with { healthy: false }", async () => {
+    const stub = startOpenCodeStub({ healthyBodyFalse: true });
+    try {
+      const client = createOpenCodeClient(stub.url);
+      expect(await client.checkHealth()).toBe(false);
+      await expect(client.assertHealthy()).rejects.toThrow(/not healthy/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("base URL with a trailing slash is normalized (no //session 404)", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(`${stub.url}/`);
+      expect(await client.checkHealth()).toBe(true);
+      const session = await client.createSession({ agent: "build" });
+      expect(session.id).toMatch(/^ses_/);
+      expect(stub.calls.some((c) => c.path === "/session")).toBe(true);
+      expect(stub.calls.some((c) => c.path === "//session")).toBe(false);
     } finally {
       stub.close();
     }

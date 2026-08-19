@@ -100,8 +100,11 @@ export function createOpenCodeClient(
   baseUrl: string,
   signal?: AbortSignal,
 ): OpenCodeClient {
+  // Normalize a trailing slash so `http://host:4096/` + `/session` never
+  // produces a double-slash path (which the server would 404).
+  const origin = baseUrl.replace(/\/+$/, '');
   const sessionUrl = (id?: string): string =>
-    `${baseUrl}/session${id ? `/${encodeURIComponent(id)}` : ''}`;
+    `${origin}/session${id ? `/${encodeURIComponent(id)}` : ''}`;
 
   async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
     let res: Response;
@@ -126,10 +129,14 @@ export function createOpenCodeClient(
 
   async function checkHealth(): Promise<boolean> {
     try {
-      const res = await fetch(`${baseUrl}/api/health`, {
+      const res = await fetch(`${origin}/api/health`, {
         signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
       });
-      return res.ok;
+      if (!res.ok) return false;
+      // The server may answer 200 with `{ healthy: false }` — the payload,
+      // not the status, is the contract. Fail the gate on an explicit false.
+      const body = (await res.json().catch(() => ({}))) as { healthy?: boolean };
+      return body.healthy !== false;
     } catch {
       return false;
     }
@@ -138,7 +145,7 @@ export function createOpenCodeClient(
   async function assertHealthy(): Promise<void> {
     if (!(await checkHealth())) {
       throw new Error(
-        `opencode server at ${baseUrl} is not healthy — is \`opencode serve\` running?`,
+        `opencode server at ${origin} is not healthy — is \`opencode serve\` running?`,
       );
     }
   }
