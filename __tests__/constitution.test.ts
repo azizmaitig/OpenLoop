@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { checkPlanAgainstConstitution } from "../src/constitution.js";
+import {
+  auditHealOutput,
+  auditTranscriptEntries,
+  buildPermissionRuleset,
+  checkPlanAgainstConstitution,
+  formatAuditIncidentReport,
+} from "../src/constitution.js";
 import type { PlanYamlDoc } from "../src/types.js";
+import type { TranscriptEntry } from "../src/transcript.js";
 
 function makePlan(tasks: PlanYamlDoc["tasks"]): PlanYamlDoc {
   return { planName: "test-plan", tasks };
@@ -344,5 +351,122 @@ describe("checkPlanAgainstConstitution", () => {
       { id: "verify", command: "bun run build", timeoutMs: 120000 },
     ]);
     expect(checkPlanAgainstConstitution(doc)).toEqual([]);
+  });
+});
+
+// ── T5 #40: PermissionRuleset build (D6.3) ───────────────────────────────────
+
+describe("buildPermissionRuleset", () => {
+  test("every denylisted path token gets a deny rule for edit/bash/glob", () => {
+    const rules = buildPermissionRuleset();
+    const pathTokens = [
+      ".env", "auth/", "payments/", "secrets/", "credentials/",
+      ".pem", ".key", "id_rsa", "aws_access_key",
+    ];
+    for (const token of pathTokens) {
+      expect(rules.some((r) => r.permission === "edit" && r.action === "deny" && r.pattern.includes(token)))
+        .toBe(true);
+      expect(rules.some((r) => r.permission === "bash" && r.action === "deny" && r.pattern.includes(token)))
+        .toBe(true);
+      expect(rules.some((r) => r.permission === "glob" && r.action === "deny" && r.pattern.includes(token)))
+        .toBe(true);
+    }
+  });
+
+  test("denies dangerous bash tools (git push, destructive shell)", () => {
+    const rules = buildPermissionRuleset();
+    expect(rules.some((r) => r.permission === "bash" && r.action === "deny" && r.pattern.includes("git push"))).toBe(true);
+    expect(rules.some((r) => r.permission === "bash" && r.action === "deny" && r.pattern.includes("rm -rf"))).toBe(true);
+  });
+
+  test("uses native opencode permission keys (edit/bash/glob) and deny action only", () => {
+    const rules = buildPermissionRuleset();
+    expect(rules.length).toBeGreaterThan(0);
+    for (const r of rules) {
+      expect(["edit", "bash", "glob"]).toContain(r.permission);
+      expect(r.action).toBe("deny");
+      expect(typeof r.pattern).toBe("string");
+      expect(r.pattern.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("respects permissionOverrides appended after the built-in denies", () => {
+    const rules = buildPermissionRuleset([
+      { permission: "bash", pattern: "git *", action: "allow" },
+    ]);
+    const last = rules[rules.length - 1]!;
+    expect(last).toEqual({ permission: "bash", pattern: "git *", action: "allow" });
+  });
+});
+
+// ── T5 #40: post-hoc transcript audit (D6.4) ─────────────────────────────────
+
+describe("auditTranscriptEntries", () => {
+  test("flags a tool call whose input references a denylisted path", () => {
+    const entries: TranscriptEntry[] = [
+      { kind: "tool", ts: 1, callID: "call_1", tool: "bash", state: "called", input: { cmd: "cat .env" } },
+    ];
+    const v = auditTranscriptEntries(entries);
+    expect(v.length).toBeGreaterThan(0);
+    expect(v[0]!.rule).toBe("audit-denylisted-path");
+    expect(v[0]!.detail).toContain(".env");
+    expect(v[0]!.detail).toContain("call_1");
+  });
+
+  test("flags a failed tool whose error output references a denylisted path", () => {
+    const entries: TranscriptEntry[] = [
+      { kind: "tool", ts: 1, callID: "call_2", tool: "bash", state: "failed", input: { cmd: "ls" }, error: "permission denied on secrets/credentials.db" },
+    ];
+    const v = auditTranscriptEntries(entries);
+    expect(v.some((x) => x.rule === "audit-denylisted-path" && x.detail.includes("secrets/"))).toBe(true);
+  });
+
+  test("flags a patch part touching a denylisted file", () => {
+    const entries: TranscriptEntry[] = [
+      { kind: "part", ts: 1, part: { type: "patch", hash: "abc", files: ["src/ok.ts", "auth/token.json"] } },
+    ];
+    const v = auditTranscriptEntries(entries);
+    expect(v.some((x) => x.rule === "audit-denylisted-path" && x.detail.includes("auth/token.json"))).toBe(true);
+  });
+
+  test("is clean on a transcript with no denylisted touches", () => {
+    const entries: TranscriptEntry[] = [
+      { kind: "tool", ts: 1, callID: "call_1", tool: "bash", state: "success", input: { cmd: "ls" }, result: "src\npackage.json" },
+      { kind: "tool", ts: 2, callID: "call_2", tool: "edit", state: "success", input: { filePath: "src/a.ts" }, result: "ok" },
+      { kind: "part", ts: 3, part: { type: "patch", hash: "abc", files: ["src/a.ts"] } },
+    ];
+    expect(auditTranscriptEntries(entries)).toEqual([]);
+  });
+});
+
+// ── T5 #40: shared heal audit (D6.5) ─────────────────────────────────────────
+
+describe("auditHealOutput", () => {
+  test("flags a denylisted token in heal stdout", () => {
+    const v = auditHealOutput("healed: rewrote .env.example", "");
+    expect(v.some((x) => x.rule === "audit-denylisted-path" && x.detail.includes(".env"))).toBe(true);
+  });
+
+  test("flags a denylisted token in heal stderr", () => {
+    const v = auditHealOutput("", "error: cannot read id_rsa");
+    expect(v.some((x) => x.rule === "audit-denylisted-path" && x.detail.includes("id_rsa"))).toBe(true);
+  });
+
+  test("is clean on a heal that touches nothing denylisted", () => {
+    expect(auditHealOutput("lint fixed", "0 warnings")).toEqual([]);
+  });
+});
+
+// ── T5 #40: incident report formatting ───────────────────────────────────────
+
+describe("formatAuditIncidentReport", () => {
+  test("renders a detailed multi-line incident report", () => {
+    const violations = auditTranscriptEntries([
+      { kind: "tool", ts: 1, callID: "call_1", tool: "bash", state: "called", input: { cmd: "cat .env" } },
+    ]);
+    const report = formatAuditIncidentReport("agent-leak", violations);
+    expect(report).toContain("agent-leak");
+    expect(report).toContain(".env");
+    expect(report.split("\n").length).toBeGreaterThan(1);
   });
 });
