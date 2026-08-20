@@ -358,4 +358,50 @@ describe("executePhaseGroup", () => {
     expect(result.state.phaseResults["first"]!.status).toBe("pass");
     expect(result.state.phaseResults["second"]!.status).toBe("pass");
   });
+
+  test("heal command touching a denylisted path is REJECTED, not HEALED (T5 D6.5)", async () => {
+    const phases: PhaseDef[] = [
+      {
+        name: "build",
+        command: "exit 1",
+        expectedExitCode: 0,
+        timeoutMs: 5000,
+        healCommand: "echo touched .env",
+        maxRetries: 2,
+      },
+    ];
+    const deps = makeDeps({ config: makeConfig(phases) });
+    const state = makeState();
+
+    const result = await executePhaseGroup(deps, state, 1);
+
+    expect(result.allPassed).toBe(false);
+    const pr = result.state.phaseResults["build"]!;
+    expect(pr.status).toBe("fail");
+    expect(pr.stderr).toContain("Constitution audit REJECTED");
+    expect(pr.stderr).toContain(".env");
+  });
+
+  test("clean heal output still heals the phase (T5 D6.5 regression guard)", async () => {
+    const phases: PhaseDef[] = [
+      {
+        name: "build",
+        command: "exit 1",
+        expectedExitCode: 0,
+        timeoutMs: 5000,
+        healCommand: "echo harmless fix",
+        maxRetries: 2,
+      },
+    ];
+    const deps = makeDeps({ config: makeConfig(phases) });
+    const state = makeState();
+
+    const result = await executePhaseGroup(deps, state, 1);
+
+    // healCommand runs, then the phase command re-runs — the phase still
+    // fails (exit 1), but the heal itself is NOT rejected by the audit.
+    const pr = result.state.phaseResults["build"]!;
+    expect(pr.status).toBe("fail");
+    expect(pr.stderr).not.toContain("Constitution audit REJECTED");
+  });
 });

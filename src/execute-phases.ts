@@ -28,6 +28,7 @@ import { updatePhaseResult } from './state.js';
 import type { PhaseDef, PhaseResult, LoopState, LoopConfig, PlanYamlDoc } from './types.js';
 import { logPhaseContext } from './memory-hooks.js';
 import { runCommand } from './shell.js';
+import { auditHealOutput, formatAuditIncidentReport } from './constitution.js';
 import { appendRunLog } from './run-log.js';
 import type { RunLogEntry } from './run-log.js';
 import { topoSortLayers } from './phase-graph.js';
@@ -367,18 +368,25 @@ async function runSinglePhase(
     // ADR-0011 heal seam: phases with healCommand get up to maxRetries heal
     // attempts (re-run phase command); success bypasses failTerminal.
     if (phase.healCommand) {
-      const { healed } = await RecoveryStrategy.healAndRetry(
+      const { healed, auditViolations } = await RecoveryStrategy.healAndRetry(
         {
           taskQueue: { fail: () => {}, get: () => undefined } as never,
           broadcast: () => {},
           runCommand: (cmd: string, timeoutMs?: number) =>
             runCommand(cmd, { timeoutMs }),
+          auditHeal: auditHealOutput,
         },
         phase,
         result,
         { healCommand: phase.healCommand, maxRetries: phase.maxRetries ?? 1 },
       );
-      if (healed) {
+      // T5 D6.5: a denylisted touch in the heal output REJECTS the phase —
+      // the shared constitution audit covers heal runs, not just agents.
+      if (auditViolations && auditViolations.length > 0) {
+        result.status = 'fail';
+        result.stderr = formatAuditIncidentReport(phase.name, auditViolations);
+      }
+      if (healed && !(auditViolations && auditViolations.length > 0)) {
         console.log(`HEALED (${totalPhaseMs}ms)`);
         await deps.writeState(newState);
         return { passed: true, state: newState };
