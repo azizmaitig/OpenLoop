@@ -12,7 +12,7 @@
  * API. The only module allowed to touch /experimental/workspace.
  */
 
-import { existsSync, copyFileSync } from 'node:fs';
+import { existsSync, copyFileSync, statSync, cpSync } from 'node:fs';
 import type { RunLogEntry } from './run-log.js';
 import type { OpenCodeClient, OpenCodeSession } from './opencode-client.js';
 import { createOpenCodeClient } from './opencode-client.js';
@@ -58,17 +58,33 @@ export function createWorktreeManager(
   };
 }
 
-/** Detect whether targetPath lives inside a git work tree. */
+/**
+ * Detect whether targetPath is a git repo that can actually be forked into a
+ * worktree. A repo with zero commits (git init, no HEAD — e.g. calendar-app)
+ * cannot: `git worktree add` needs a commit to branch from. Such targets are
+ * treated as non-git and take the backup path (PRD v11 D4: "0 commits → backup").
+ */
 export async function isGitTarget(targetPath: string): Promise<boolean> {
   const { exitCode } = await runCommand('git rev-parse --is-inside-work-tree', { cwd: targetPath });
-  return exitCode === 0;
+  if (exitCode !== 0) return false;
+  const head = await runCommand('git rev-parse --verify HEAD', { cwd: targetPath });
+  return head.exitCode === 0;
 }
 
-/** Backup targetPath to targetPath.bak unless it already exists (never overwrite). */
+/**
+ * Backup targetPath to targetPath.bak unless it already exists (never
+ * overwrite). Files are copied as-is; directories are copied recursively
+ * (calendar-app-style targets are directories, T8). Missing targets still
+ * produce a backup path for the parent directory.
+ */
 export async function backupTarget(targetPath: string): Promise<{ backupPath: string; skipped: boolean }> {
   const backupPath = `${targetPath}.bak`;
   if (existsSync(backupPath)) return { backupPath, skipped: true };
-  copyFileSync(targetPath, backupPath);
+  if (existsSync(targetPath) && statSync(targetPath).isDirectory()) {
+    cpSync(targetPath, backupPath, { recursive: true });
+  } else {
+    copyFileSync(targetPath, backupPath);
+  }
   return { backupPath, skipped: false };
 }
 

@@ -228,6 +228,12 @@ export interface PlanYamlDoc {
    * `docs/l2-readiness-checklist.md` (mechanic checks + human ticks).
    */
   l2?: { checklist?: 'done' };
+  /**
+   * Plan-level target (v11 D8/T8): the repo/project the agent tasks work on.
+   * Declared by the plan author so the runner can build the TargetSpec
+   * (git → worktree isolation, non-git → .bak backup before touch).
+   */
+  target?: { path: string; branch?: string; isolated?: boolean };
 }
 
 export interface CheckpointState {

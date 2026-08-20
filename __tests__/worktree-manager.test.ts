@@ -111,6 +111,30 @@ describe("backupTarget", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("backs up a DIRECTORY target recursively (calendar-app is a dir, T8)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wtm-backup-dir-"));
+    try {
+      const target = join(dir, "app");
+      mkdirSync(join(target, "src"), { recursive: true });
+      writeFileSync(join(target, "src", "App.tsx"), "export const App = () => null;");
+      writeFileSync(join(target, "README.md"), "# calendar-app");
+
+      const result = await backupTarget(target);
+      expect(result.skipped).toBe(false);
+      expect(result.backupPath).toBe(`${target}.bak`);
+      expect(existsSync(join(`${target}.bak`, "src", "App.tsx"))).toBe(true);
+      expect(readFileSync(join(`${target}.bak`, "README.md"), "utf8")).toBe("# calendar-app");
+
+      // Idempotent: a second run never overwrites the pristine backup.
+      writeFileSync(join(target, "README.md"), "# modified by agent");
+      const second = await backupTarget(target);
+      expect(second.skipped).toBe(true);
+      expect(readFileSync(join(`${target}.bak`, "README.md"), "utf8")).toBe("# calendar-app");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -118,6 +142,33 @@ describe("backupTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("prepareTarget", () => {
+  test("treats a git repo with ZERO commits as non-git (calendar-app, T8)", async () => {
+    const f = setupFixture();
+    try {
+      const repoDir = join(f.baseDir, "no-commits");
+      mkdirSync(repoDir, { recursive: true });
+      const r = (cmd: string) => Bun.spawnSync(cmd.split(/\s+/), { cwd: repoDir });
+      r("git init");
+      writeFileSync(join(repoDir, "README.md"), "# zero commits");
+
+      expect(await isGitTarget(repoDir)).toBe(false);
+
+      // prepareTarget must take the backup path, not attempt a worktree on a
+      // repo with no HEAD (createWorktree would fail).
+      const client = stubClient(repoDir, join(f.baseDir, "wt"));
+      const handle = await prepareTarget(
+        { targetPath: repoDir, branch: "agent/t8", isolated: true },
+        makeDeps(client),
+      );
+      expect(handle.mode).toBe("backup");
+      if (handle.mode === "backup") {
+        expect(existsSync(handle.backupPath)).toBe(true);
+      }
+    } finally {
+      f.cleanup();
+    }
+  });
+
   test("git target creates a native workspace and returns a git handle", async () => {
     const f = setupFixture();
     try {

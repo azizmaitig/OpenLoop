@@ -96,6 +96,30 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
     }
   }
 
+  // Rule: target field, when declared, must be well-formed (v11 D8/T8).
+  // The runner builds the TargetSpec from it (git → worktree, non-git → .bak).
+  if (doc.target !== undefined) {
+    if (doc.target === null || typeof doc.target !== 'object' || Array.isArray(doc.target)) {
+      errors.push({
+        rule: 'invalid-target',
+        detail: `Plan "target" must be an object with a "path". Received: ${JSON.stringify(doc.target)}.`,
+      });
+    } else {
+      if (typeof doc.target.path !== 'string' || doc.target.path.trim() === '') {
+        errors.push({
+          rule: 'invalid-target',
+          detail: `Plan "target.path" must be a non-empty string (the absolute path of the repo/project the agent works on). Received: "${String(doc.target.path)}".`,
+        });
+      }
+      if (doc.target.isolated !== undefined && typeof doc.target.isolated !== 'boolean') {
+        errors.push({
+          rule: 'invalid-target',
+          detail: `Plan "target.isolated" must be a boolean. Received: "${String(doc.target.isolated)}".`,
+        });
+      }
+    }
+  }
+
   // Composites: validate their sub-phases too (they share the same field rules).
   if (doc.composites) {
     for (const composite of doc.composites) {

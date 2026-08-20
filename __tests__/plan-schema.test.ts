@@ -156,6 +156,36 @@ describe("validatePlanSchema", () => {
     expect(validatePlanSchema(doc)).toEqual([]);
   });
 
+  test("accepts a plan-level target declaration (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { target: { path: "D:\\apps\\calendar-app", isolated: true } },
+    );
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("rejects a target without a path (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      // @ts-expect-error intentionally missing target.path
+      { target: { isolated: true } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-target");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("path");
+  });
+
+  test("rejects a non-boolean target.isolated (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { target: { path: "D:\\apps\\calendar-app", isolated: "yes" as unknown as boolean } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-target");
+    expect(err).toBeDefined();
+  });
+
   test("collects multiple distinct errors at once", () => {
     const doc = plan([
       { id: "dup", command: "echo a" },
