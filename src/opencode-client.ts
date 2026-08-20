@@ -12,11 +12,13 @@
  *
  * Contract verified against the REAL opencode server OpenAPI 3.1.0 doc
  * (/doc, 2026-08-19):
- *   GET  /api/health              → { healthy: true }
- *   POST /session                 → create ({ title?, agent?, model?, permission? })
- *   GET  /session                 → list (Session[])
- *   GET  /session/{id}            → get (Session)
- *   POST /session/{id}/abort      → abort (true)
+ *   GET  /api/health                → { healthy: true }
+ *   POST /session                   → create ({ title?, agent?, model?, permission? })
+ *   GET  /session                   → list (Session[])
+ *   GET  /session/{id}              → get (Session)
+ *   POST /session/{id}/prompt_async → send a text prompt ({ parts: [{ type: 'text', text }] }) → 204
+ *   GET  /api/session/{id}/event    → SSE event stream (data = SessionDurableEvent JSON)
+ *   POST /session/{id}/abort        → abort (true)
  */
 
 /** Cap on error-body snippets attached to non-2xx failures. */
@@ -52,6 +54,27 @@ export interface OpenCodeSession {
   time?: { created?: number; updated?: number };
 }
 
+/**
+ * One event from the session event stream. `data` is the raw
+ * SessionDurableEvent JSON — discriminated by `data.type` (e.g.
+ * `session.next.text.ended` with `data.text`, `session.next.step.ended`
+ * with `data.finish`, `session.next.step.failed` with `data.error`).
+ */
+export interface OpenCodeEventData {
+  type?: string;
+  text?: string;
+  finish?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
+/** A parsed SSE block from GET /api/session/{id}/event. */
+export interface OpenCodeStreamEvent {
+  id?: string;
+  event?: string;
+  data?: OpenCodeEventData;
+}
+
 export interface CreateSessionOptions {
   /** Agent name (e.g. "build", "plan"). */
   agent?: string;
@@ -77,6 +100,10 @@ export interface OpenCodeClient {
   getSession(id: string): Promise<OpenCodeSession>;
   /** Abort/close a session by id. */
   abortSession(id: string): Promise<void>;
+  /** Send a text prompt to a session (POST /session/{id}/prompt_async). */
+  sendPrompt(sessionId: string, text: string, opts?: { signal?: AbortSignal }): Promise<void>;
+  /** Open the session event stream (GET /api/session/{id}/event, SSE) as parsed events. */
+  streamEvents(sessionId: string, opts?: { signal?: AbortSignal }): AsyncIterable<OpenCodeStreamEvent>;
 }
 
 /** Typed error for non-2xx responses — carries the server's status and message. */
@@ -106,14 +133,19 @@ export function createOpenCodeClient(
   const sessionUrl = (id?: string): string =>
     `${origin}/session${id ? `/${encodeURIComponent(id)}` : ''}`;
 
-  async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  async function request<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+    reqSignal?: AbortSignal,
+  ): Promise<T> {
     let res: Response;
     try {
       res = await fetch(url, {
         method,
         headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal,
+        signal: reqSignal ?? signal,
       });
     } catch (err) {
       throw new Error(
@@ -124,7 +156,9 @@ export function createOpenCodeClient(
       const text = await res.text().catch(() => '');
       throw new OpenCodeApiError(method, url, res.status, text);
     }
-    return (await res.json()) as T;
+    // Empty bodies (e.g. 204 from prompt_async) parse to undefined.
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   async function checkHealth(): Promise<boolean> {
@@ -181,5 +215,76 @@ export function createOpenCodeClient(
         throw new OpenCodeApiError('POST', url, res.status, text);
       }
     },
+    async sendPrompt(sessionId, text, opts = {}) {
+      const url = `${sessionUrl(sessionId)}/prompt_async`;
+      await request<void>(
+        'POST',
+        url,
+        { parts: [{ type: 'text', text }] },
+        opts.signal,
+      );
+    },
+    async *streamEvents(sessionId, opts = {}): AsyncIterable<OpenCodeStreamEvent> {
+      const url = `${origin}/api/session/${encodeURIComponent(sessionId)}/event`;
+      const reqSignal = opts.signal ?? signal;
+      let res: Response;
+      try {
+        res = await fetch(url, { method: 'GET', signal: reqSignal });
+      } catch (err) {
+        throw new Error(
+          `opencode request failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new OpenCodeApiError('GET', url, res.status, text);
+      }
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // Normalize CRLF so `\n\n` is the only block separator.
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+          for (;;) {
+            const sep = buffer.indexOf('\n\n');
+            if (sep === -1) break;
+            const block = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            const parsed = parseSseBlock(block);
+            if (parsed) yield parsed;
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    },
   };
+}
+
+/**
+ * Parse one SSE block (`id:`/`event:`/`data:` lines) into a stream event.
+ * Blocks without a `data` line (heartbeats, comments) yield nothing.
+ */
+function parseSseBlock(block: string): OpenCodeStreamEvent | null {
+  let id: string | undefined;
+  let event: string | undefined;
+  const dataLines: string[] = [];
+  for (const line of block.split('\n')) {
+    if (line.startsWith('id:')) id = line.slice(3).trim();
+    else if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+  }
+  if (dataLines.length === 0) return null;
+  const joined = dataLines.join('\n');
+  let data: OpenCodeEventData;
+  try {
+    data = JSON.parse(joined) as OpenCodeEventData;
+  } catch {
+    data = { text: joined };
+  }
+  return { id, event, data };
 }
