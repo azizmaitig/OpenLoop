@@ -78,6 +78,24 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
     });
   }
 
+  // Rule: l2 field, when declared, must be `{ checklist: done }` (v11 D5).
+  // The plan-level L2 gate — missing flag on a plan that spawns agent
+  // tasks — is enforced by the executor (plan-executor beforeLoop), so a
+  // command-only plan without `l2` stays valid here.
+  if (doc.l2 !== undefined) {
+    if (doc.l2 === null || typeof doc.l2 !== 'object' || Array.isArray(doc.l2)) {
+      errors.push({
+        rule: 'invalid-l2-checklist',
+        detail: `Plan "l2" must be an object with "checklist: done". Received: ${JSON.stringify(doc.l2)}.`,
+      });
+    } else if (doc.l2.checklist !== 'done') {
+      errors.push({
+        rule: 'invalid-l2-checklist',
+        detail: `Plan "l2.checklist" must be exactly "done" (the only accepted value — the L2 readiness checklist in docs/l2-readiness-checklist.md gates L2 agent runs). Received: "${String(doc.l2.checklist)}".`,
+      });
+    }
+  }
+
   // Composites: validate their sub-phases too (they share the same field rules).
   if (doc.composites) {
     for (const composite of doc.composites) {

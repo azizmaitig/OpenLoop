@@ -219,6 +219,15 @@ export interface PlanYamlDoc {
   tasks: PlanYamlTask[];
   /** Optional reusable composite phase sequences. */
   composites?: CompositeDef[];
+  /**
+   * L2 readiness gate (v11 D5, AGENTS.md "No auto-fix until L2 checklist
+   * complete"). Human-written plan-level declaration: `l2.checklist: done`
+   * is REQUIRED before any `type: agent` task can spawn. Absent for
+   * command-only (L1) plans — the executor only gates plans that would
+   * spawn an agent task. The source of truth lives in
+   * `docs/l2-readiness-checklist.md` (mechanic checks + human ticks).
+   */
+  l2?: { checklist?: 'done' };
 }
 
 export interface CheckpointState {

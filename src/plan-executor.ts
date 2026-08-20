@@ -6,7 +6,7 @@
 import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, LoopState, CompositeDef } from './types.js';
 import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
-import { checkPlanAgainstConstitution } from './constitution.js';
+import { checkPlanAgainstConstitution, type ConstitutionViolation } from './constitution.js';
 import { validatePlanSchema } from './plan-schema.js';
 
 let activePlanPath = '';
@@ -99,6 +99,17 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
     throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
   }
 
+  // L2 readiness gate (v11 D5) — refuses to spawn agent tasks until the
+  // human declares `l2.checklist: done` in the plan YAML. Command-only
+  // (L1) plans never spawn agent tasks, so they pass without the flag.
+  const l2Violations = checkPlanL2Gate(doc);
+  if (l2Violations.length > 0) {
+    const lines = l2Violations
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`L2 gate violation in ${planPath}:\n${lines}`);
+  }
+
   activePlanDoc = doc;
 
   let tasks = doc.tasks;
@@ -119,6 +130,35 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
   }
 
   return phases;
+}
+
+/**
+ * Plan-level L2 gate (v11 D5): a plan that would spawn a `type: agent`
+ * task — directly or through a composite `use` — must declare the
+ * human-written `l2.checklist: done` flag first. Command-only (L1) plans
+ * contain no agent tasks, so they pass without the flag.
+ */
+export function checkPlanL2Gate(doc: PlanYamlDoc): ConstitutionViolation[] {
+  if (doc.l2?.checklist === 'done') return [];
+
+  const agentTaskIds = doc.tasks
+    .filter((t) => taskSpawnsAgent(t, doc))
+    .map((t) => t.id);
+  if (agentTaskIds.length === 0) return [];
+
+  return [
+    {
+      rule: 'l2-checklist',
+      detail: `Plan "${doc.planName}" spawns agent task(s) [${agentTaskIds.join(', ')}] but does not declare l2.checklist: done. Complete docs/l2-readiness-checklist.md and declare the flag in the plan YAML (human-written) before any L2 agent run.`,
+    },
+  ];
+}
+
+function taskSpawnsAgent(task: PlanYamlTask, doc: PlanYamlDoc): boolean {
+  if (task.type === 'agent') return true;
+  if (!task.use) return false;
+  const composite = doc.composites?.find((c) => c.id === task.use);
+  return composite?.phases?.some((p) => p.type === 'agent') ?? false;
 }
 
 function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {

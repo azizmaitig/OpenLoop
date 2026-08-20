@@ -201,8 +201,84 @@ describe("expandComposites", () => {
   });
 });
 
+describe("L2 checklist gate in beforeLoop (D5, T7)", () => {
+  const agentPlan = `planName: agent-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    agent: openhands
+    workspace:
+      type: docker
+  - id: verify
+    command: bun test
+`;
+
+  const agentPlanWithL2 = `planName: agent-plan
+l2:
+  checklist: done
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    agent: openhands
+    workspace:
+      type: docker
+  - id: verify
+    command: bun test
+`;
+
+  const commandOnlyPlan = `planName: command-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: verify
+    command: bun test
+`;
+
+  test("rejects an agent plan WITHOUT l2.checklist: done", async () => {
+    await expect(beforeLoop(agentPlan)).rejects.toThrow(/l2\.checklist: done/);
+  });
+
+  test("rejects with an explicit error naming the gate rule", async () => {
+    await expect(beforeLoop(agentPlan)).rejects.toThrow(/l2-checklist/);
+  });
+
+  test("accepts an agent plan WITH l2.checklist: done", async () => {
+    const phases = await beforeLoop(agentPlanWithL2);
+    expect(phases.some((p) => p.name === "analyze")).toBe(true);
+  });
+
+  test("does NOT gate a command-only plan (no agent tasks)", async () => {
+    const phases = await beforeLoop(commandOnlyPlan);
+    expect(phases.map((p) => p.name)).toEqual(["read-state", "verify"]);
+  });
+
+  test("rejects an agent plan with an invalid l2.checklist value (schema gate fires first)", async () => {
+    const bad = `planName: agent-plan
+l2:
+  checklist: pending
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+  - id: verify
+    command: bun test
+`;
+    await expect(beforeLoop(bad)).rejects.toThrow(/invalid-l2-checklist/);
+  });
+});
+
 describe("agent task schema gate in beforeLoop (v10, ADR-0023)", () => {
   const validAgentPlan = `planName: agent-plan
+l2:
+  checklist: done
 tasks:
   - id: read-state
     command: type STATE.md
@@ -228,6 +304,8 @@ tasks:
 
   test("maps worktree: true from plan YAML to PhaseDef.worktree (T6 isolation)", async () => {
     const planYaml = `planName: wt-plan
+l2:
+  checklist: done
 tasks:
   - id: read-state
     command: type STATE.md

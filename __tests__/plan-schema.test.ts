@@ -118,6 +118,44 @@ describe("validatePlanSchema", () => {
     expect(validatePlanSchema(doc)).toEqual([]);
   });
 
+  test("rejects an l2.checklist value other than 'done' (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: { checklist: "pending" as unknown as "done" } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-l2-checklist");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("done");
+  });
+
+  test("rejects a non-object l2 field (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      // @ts-expect-error intentionally invalid l2 shape
+      { l2: "done" },
+    );
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "invalid-l2-checklist")).toBe(true);
+  });
+
+  test("rejects an empty l2 object (checklist missing, D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: {} },
+    );
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "invalid-l2-checklist")).toBe(true);
+  });
+
+  test("accepts l2.checklist: done (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: { checklist: "done" } },
+    );
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
   test("collects multiple distinct errors at once", () => {
     const doc = plan([
       { id: "dup", command: "echo a" },
