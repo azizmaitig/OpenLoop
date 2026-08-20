@@ -13,7 +13,9 @@ import { createLoopContext } from './loop-context.js';
 import { updatePhaseResult } from './state.js';
 import { executeBeforeLoop, executeAfterLoop } from './plugins.js';
 import type { Plugin } from './plugins.js';
-import { getPlanDoc } from './plan-executor.js';
+import { getPlanDoc, buildTargetSpecFromPlan } from './plan-executor.js';
+import { createWorktreeManager } from './worktree-manager.js';
+import type { TargetSpec } from './worktree-manager.js';
 import { saveCheckpoint, clearCheckpoint, loadCheckpoint, hasValidCheckpoint } from './checkpoint.js';
 import { cleanupRunOutput } from './output-store.js';
 import { evaluatePhase } from './evaluate.js';
@@ -199,6 +201,13 @@ async function runLoop(config: LoopConfig, broadcastOrOpts?: RunLoopOpts['broadc
     }
   }
 
+  // T8: a plan-level `target` declaration becomes the isolated TargetSpec.
+  // The manager is created only when a target exists (no worktree/backup
+  // machinery for plain non-target runs).
+  const planDoc = getPlanDoc();
+  const targetSpec: TargetSpec | undefined = planDoc ? buildTargetSpecFromPlan(planDoc) : undefined;
+  const worktreeManager = targetSpec ? createWorktreeManager() : undefined;
+
   // Write initial state
   await writeBothStates(state);
 
@@ -222,6 +231,8 @@ async function runLoop(config: LoopConfig, broadcastOrOpts?: RunLoopOpts['broadc
         getPlanDoc,
         logPath: resolve('loop-run-log.md'),
         broadcast,
+        targetSpec,
+        worktreeManager,
         // resolveTransition honors maxIterations + pass/fail (0-based index i).
         decideEvent: (passed, postVerifyState) => resolveTransition(sm, config, postVerifyState, i, passed),
       });

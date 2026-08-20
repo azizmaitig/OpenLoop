@@ -8,6 +8,7 @@ import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
 import { checkPlanAgainstConstitution, type ConstitutionViolation } from './constitution.js';
 import { validatePlanSchema } from './plan-schema.js';
+import type { TargetSpec } from './worktree-manager.js';
 
 let activePlanPath = '';
 let activePlanDoc: PlanYamlDoc | null = null;
@@ -254,4 +255,19 @@ export function dumpPlanYaml(doc: PlanYamlDoc): string {
 
 export function getPlanDoc(): PlanYamlDoc | null {
   return activePlanDoc;
+}
+
+/**
+ * Build the loop's TargetSpec from a plan's `target` declaration (T8).
+ * A plan without `target` yields undefined — the run stays non-isolated.
+ * Isolation defaults to true when the plan declares a target: the agent
+ * must not touch the working tree (git → worktree, non-git → .bak backup).
+ */
+export function buildTargetSpecFromPlan(doc: PlanYamlDoc): TargetSpec | undefined {
+  if (!doc.target) return undefined;
+  return {
+    targetPath: doc.target.path,
+    branch: doc.target.branch,
+    isolated: doc.target.isolated ?? true,
+  };
 }

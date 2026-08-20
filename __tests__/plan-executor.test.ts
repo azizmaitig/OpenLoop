@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop } from "../src/plan-executor.js";
+import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop, buildTargetSpecFromPlan } from "../src/plan-executor.js";
 import type { PlanYamlTask, PlanYamlDoc, CompositeDef } from "../src/types.js";
 
 const FIXTURE_PATH = "__tests__/fixtures/sample.plan.yaml";
@@ -198,6 +198,39 @@ describe("expandComposites", () => {
     expect(result[0].command).toBe("echo setup");
     expect(result[1].id).toBe("build-all");
     expect(result[1].command).toBe("echo compile && echo test");
+  });
+});
+
+describe("buildTargetSpecFromPlan (T8)", () => {
+  test("returns undefined when the plan declares no target", () => {
+    const doc: PlanYamlDoc = { planName: "no-target", tasks: [] };
+    expect(buildTargetSpecFromPlan(doc)).toBeUndefined();
+  });
+
+  test("builds a TargetSpec with isolated defaulting to true", () => {
+    const doc: PlanYamlDoc = {
+      planName: "with-target",
+      tasks: [],
+      target: { path: "D:\\apps\\calendar-app" },
+    };
+    const spec = buildTargetSpecFromPlan(doc);
+    expect(spec).toEqual({
+      targetPath: "D:\\apps\\calendar-app",
+      isolated: true,
+    });
+  });
+
+  test("preserves branch and explicit isolated=false", () => {
+    const doc: PlanYamlDoc = {
+      planName: "with-target",
+      tasks: [],
+      target: { path: "D:\\repo", branch: "agent/audit", isolated: false },
+    };
+    expect(buildTargetSpecFromPlan(doc)).toEqual({
+      targetPath: "D:\\repo",
+      branch: "agent/audit",
+      isolated: false,
+    });
   });
 });
 
