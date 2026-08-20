@@ -25,6 +25,7 @@ export async function validatePhase(
     stderr: result.stderr,
     exitCode: result.exitCode,
     expectedExitCode: phase.expectedExitCode,
+    transcript: result.transcript,
     instruction: `Validate the phase output against this rubric:\n${v.criteria}\n\nReturn JSON: {"passed": boolean, "reason": string, "confidence": number (0-1)}`,
   });
 

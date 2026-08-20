@@ -57,6 +57,45 @@ describe("evaluatePhase - direct LLM path", () => {
     }
   });
 
+  test("LLM-graded verify receives the bounded transcript in its prompt (v11 T4)", async () => {
+    let capturedPrompt = "";
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      capturedPrompt = body.messages?.[body.messages.length - 1]?.content ?? "";
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"passed": true, "reason": "evidence reviewed", "confidence": 0.9}' } }],
+        }),
+        { status: 200 },
+      );
+    };
+
+    try {
+      const phase: PhaseDef = {
+        name: "agent-eval",
+        command: "",
+        expectedExitCode: 0,
+        timeoutMs: 1000,
+        llm: { provider: "openai", prompt: "Evaluate this" },
+      };
+      const result: PhaseResult = {
+        status: "pass",
+        exitCode: 0,
+        stdout: "DONE",
+        stderr: "",
+        durationMs: 10,
+        evidencePath: "",
+        transcript: 'steps=1 tools=1 failedTools=0 patches=1\ntool:bash call_1 input={"cmd":"ls"} → ok: file.txt\npatch:abc files=[src/a.ts]',
+      };
+      const judgment = await evaluatePhase(phase, result);
+      expect(judgment.passed).toBe(true);
+      expect(capturedPrompt).toContain("tool:bash call_1");
+      expect(capturedPrompt).toContain("src/a.ts");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("falls back to exit code judgment when callLLM throws", async () => {
     globalThis.fetch = async () => new Response("Server error", { status: 500 });
 

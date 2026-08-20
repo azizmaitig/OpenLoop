@@ -18,6 +18,7 @@
 import { evaluatePhase } from './evaluate.js';
 import { validatePhase } from './validator.js';
 import { executeAgentPhase } from './agent-executor.js';
+import type { AgentPhaseOpts } from './agent-executor.js';
 import type { AgentServerManager } from './agent-server.js';
 import type { DockerRunner } from './docker.js';
 import { executeHooks } from './plugins.js';
@@ -243,9 +244,10 @@ function executePhase(
   phase: PhaseDef,
   timeoutMs: number,
   signal?: AbortSignal,
+  agentOpts?: { runName?: string; iteration?: number },
 ): Promise<PhaseResult> {
   return phase.type === 'agent'
-    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager, deps.dockerRunner)
+    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager, deps.dockerRunner, agentOpts)
     : executeShellCommand(phase.command, timeoutMs, signal);
 }
 
@@ -271,6 +273,7 @@ async function runSinglePhase(
   logPhaseContext(phase, deps.config);
 
   const phaseStart = Date.now();
+  const runName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName;
 
   // Emit phase_start before the command executes
   const planName = deps.config.taskName;
@@ -283,10 +286,9 @@ async function runSinglePhase(
     order,
   }));
 
-  let result = await executePhase(deps, phase, phase.timeoutMs, signal);
+  let result = await executePhase(deps, phase, phase.timeoutMs, signal, { runName, iteration });
 
   // Apply output bounds — tail-cap stdout/stderr in memory, offload large output to disk
-  const runName = deps.getPlanDoc?.()?.planName ?? deps.config.taskName;
   result = { ...result, ...applyOutputBounds(phase.name, iteration, runName, result) };
 
   // Check for cancellation during command (Bun.spawnSync can't be interrupted mid-flight
