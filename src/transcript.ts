@@ -11,6 +11,9 @@
  * session message/part endpoints (the refetch fallback).
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { OUTPUT_DIR } from './constants.js';
 import type { OpenCodeStreamEvent } from './opencode-client.js';
 
 /** ADR-0015 tail cap for the in-memory transcript (mirrors PHASE_OUTPUT_TAIL). */
@@ -166,7 +169,7 @@ export class TranscriptCollector {
   }
 
   /** Record a Part payload (from a sync event or a refetched message). */
-  private recordPart(part: Record<string, unknown>, ts: number): void {
+  recordPart(part: Record<string, unknown>, ts: number): void {
     const type = typeof part.type === 'string' ? part.type : '';
     if (type === 'patch') {
       this.push({
@@ -277,4 +280,27 @@ export function reconstructTranscript(messages: TranscriptMessage[]): Transcript
     }
   }
   return collector;
+}
+
+function slugify(text: string): string {
+  return text.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+/**
+ * Write the full transcript to `_agent-loop-output/runs/<runName>/<iteration>-<phaseName>.agent.jsonl`
+ * (ADR-0015 offload pattern) and return the absolute path.
+ */
+export function writeTranscriptJsonl(
+  collector: TranscriptCollector,
+  runName: string,
+  iteration: number,
+  phaseName: string,
+  outputDir?: string,
+): string {
+  const baseDir = outputDir ?? OUTPUT_DIR;
+  const runsDir = resolve(baseDir, 'runs', slugify(runName));
+  mkdirSync(runsDir, { recursive: true });
+  const path = resolve(runsDir, `${iteration}-${slugify(phaseName)}.agent.jsonl`);
+  writeFileSync(path, collector.toJsonl(), 'utf-8');
+  return path;
 }

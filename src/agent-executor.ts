@@ -19,6 +19,12 @@ import {
 } from './opencode-client.js';
 import { DEFAULT_OPENCODE_SERVER_CONFIG } from './config.js';
 import { buildDenylistPromptInstruction } from './constitution.js';
+import {
+  TranscriptCollector,
+  reconstructTranscript,
+  writeTranscriptJsonl,
+  DEFAULT_TRANSCRIPT_TAIL,
+} from './transcript.js';
 
 /** The agent must reply exactly this when the task is done. */
 export const DONE_MARKER = 'DONE';
@@ -64,9 +70,40 @@ type AgentOutcome =
   | { kind: 'error'; stdout: string; detail: string }
   | { kind: 'aborted' };
 
+/** Optional run context for the .agent.jsonl offload (set by execute-phases). */
+export interface AgentPhaseOpts {
+  runName?: string;
+  iteration?: number;
+  outputDir?: string;
+}
+
+/** Attach the bounded transcript to a result and offload the full JSONL when a run name is known. */
+function withTranscript(
+  result: PhaseResult,
+  collector: TranscriptCollector,
+  opts: AgentPhaseOpts | undefined,
+  tailChars: number,
+  phaseName: string,
+): PhaseResult {
+  const augmented = { ...result, transcript: collector.toBoundedText(tailChars) };
+  if (opts?.runName) {
+    const path = writeTranscriptJsonl(
+      collector,
+      opts.runName,
+      opts.iteration ?? 1,
+      phaseName,
+      opts.outputDir,
+    );
+    augmented.transcriptPath = path;
+    augmented.evidencePath = path;
+  }
+  return augmented;
+}
+
 /**
  * Consume the event stream until completion: DONE marker in a text event,
  * StepFinishPart + idle timeout, stream close, hard deadline, or failure.
+ * Every event is fed to the collector for transcript assembly.
  * Never throws — failures become outcomes.
  */
 async function collectOutcome(
@@ -75,6 +112,7 @@ async function collectOutcome(
     hardDeadlineMs: number;
     idleTimeoutMs: number;
     signal: AbortSignal;
+    collector: TranscriptCollector;
   },
 ): Promise<AgentOutcome> {
   const iter = events[Symbol.asyncIterator]();
@@ -111,6 +149,7 @@ async function collectOutcome(
     if (raced.done) return { kind: 'done', stdout: lastText, via: 'stream-end' };
 
     const ev = raced.value;
+    opts.collector.record(ev);
     const type = typeof ev.data?.type === 'string' ? ev.data.type : ev.event;
 
     if (type === EVENT_STEP_FAILED) {
@@ -165,6 +204,7 @@ export async function executeAgentPhase(
   signal?: AbortSignal,
   _manager?: AgentServerManager,
   _dockerRunner?: DockerRunner,
+  opts?: AgentPhaseOpts,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
 
@@ -179,10 +219,12 @@ export async function executeAgentPhase(
 
   const effectiveTimeout = timeoutMs ?? config.phaseTimeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS;
   const idleTimeoutMs = config.opencodeServer?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const tailChars = config.opencodeServer?.transcriptTailChars ?? DEFAULT_TRANSCRIPT_TAIL;
   const baseUrl = config.opencodeServer?.url ?? DEFAULT_OPENCODE_SERVER_CONFIG.url;
   const client = createOpenCodeClient(baseUrl);
   const timeoutAc = new AbortController();
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
+  const collector = new TranscriptCollector();
 
   let sessionId: string | undefined;
 
@@ -201,49 +243,89 @@ export async function executeAgentPhase(
       hardDeadlineMs: startTime + effectiveTimeout,
       idleTimeoutMs,
       signal: effectiveSignal,
+      collector,
     });
 
     const durationMs = Date.now() - startTime;
     if (outcome.kind === 'aborted') {
       await abortBestEffort(client, sessionId);
-      return makeErrorResult('cancelled', durationMs);
+      return withTranscript(makeErrorResult('cancelled', durationMs), collector, opts, tailChars, phase.name);
     }
     if (outcome.kind === 'timeout') {
       await abortBestEffort(client, sessionId);
-      return {
-        status: 'fail',
-        exitCode: 1,
-        stdout: outcome.stdout,
-        stderr: `Agent task "${phase.name}" timed out after ${effectiveTimeout}ms — session aborted, verify will judge.`,
-        durationMs,
-        evidencePath: '',
-      };
+      return withTranscript(
+        {
+          status: 'fail',
+          exitCode: 1,
+          stdout: outcome.stdout,
+          stderr: `Agent task "${phase.name}" timed out after ${effectiveTimeout}ms — session aborted, verify will judge.`,
+          durationMs,
+          evidencePath: '',
+        },
+        collector,
+        opts,
+        tailChars,
+        phase.name,
+      );
     }
     if (outcome.kind === 'error') {
       await abortBestEffort(client, sessionId);
-      return {
-        status: 'fail',
-        exitCode: 1,
-        stdout: outcome.stdout,
-        stderr: `Agent task "${phase.name}" failed: ${outcome.detail}`,
-        durationMs,
-        evidencePath: '',
-      };
+      return withTranscript(
+        {
+          status: 'fail',
+          exitCode: 1,
+          stdout: outcome.stdout,
+          stderr: `Agent task "${phase.name}" failed: ${outcome.detail}`,
+          durationMs,
+          evidencePath: '',
+        },
+        collector,
+        opts,
+        tailChars,
+        phase.name,
+      );
     }
     // done (DONE marker | StepFinishPart + idle | stream closed): hand off —
     // the verify phase is the real gate, DONE only signals finished.
-    return {
-      status: 'pass',
-      exitCode: 0,
-      stdout: outcome.stdout,
-      stderr: '',
-      durationMs,
-      evidencePath: '',
-    };
+    return withTranscript(
+      {
+        status: 'pass',
+        exitCode: 0,
+        stdout: outcome.stdout,
+        stderr: '',
+        durationMs,
+        evidencePath: '',
+      },
+      collector,
+      opts,
+      tailChars,
+      phase.name,
+    );
   } catch (err) {
     await abortBestEffort(client, sessionId);
-    return makeErrorResult(err instanceof Error ? err.message : String(err), Date.now() - startTime);
+    return withTranscript(
+      makeErrorResult(err instanceof Error ? err.message : String(err), Date.now() - startTime),
+      collector,
+      opts,
+      tailChars,
+      phase.name,
+    );
   }
+}
+
+/**
+ * Rebuild a transcript from the session's stored messages after a crash.
+ * Refetch fallback (ADR-0024 D3b): the event stream is the primary source,
+ * the message/part endpoints are the post-crash reconstruction path.
+ */
+export async function reconstructSessionTranscript(
+  client: OpenCodeClient,
+  sessionId: string,
+  tailChars: number = DEFAULT_TRANSCRIPT_TAIL,
+): Promise<{ text: string; jsonl: string }> {
+  const messages = await client.listMessages(sessionId);
+  const collector = reconstructTranscript(messages);
+  return { text: collector.toBoundedText(tailChars), jsonl: collector.toJsonl() };
 }
 
 function resolveModel(phaseModel: PhaseDef['model']): OpenCodeSessionModel | undefined {
