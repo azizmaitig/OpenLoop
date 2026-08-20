@@ -273,6 +273,49 @@ tasks:
 `;
     await expect(beforeLoop(bad)).rejects.toThrow(/invalid-l2-checklist/);
   });
+
+  test("rejects an agent task smuggled via composite use without the L2 flag (D5 bypass)", async () => {
+    const bad = `planName: composite-agent
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: agent-step
+    use: agent-composite
+    command: echo placeholder
+  - id: verify
+    command: bun test
+composites:
+  - id: agent-composite
+    phases:
+      - id: sub
+        type: agent
+        prompt: analyze the auth module
+`;
+    await expect(beforeLoop(bad)).rejects.toThrow(/l2\.checklist: done/);
+  });
+
+  test("accepts a composite use with an agent sub-phase when the plan declares l2.checklist: done", async () => {
+    const good = `planName: composite-agent
+l2:
+  checklist: done
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: agent-step
+    use: agent-composite
+    command: echo placeholder
+  - id: verify
+    command: bun test
+composites:
+  - id: agent-composite
+    phases:
+      - id: sub
+        type: agent
+        prompt: analyze the auth module
+`;
+    const phases = await beforeLoop(good);
+    expect(phases.map((p) => p.name)).toContain("agent-step:sub");
+  });
 });
 
 describe("agent task schema gate in beforeLoop (v10, ADR-0023)", () => {
