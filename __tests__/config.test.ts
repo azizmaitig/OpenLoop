@@ -242,6 +242,17 @@ describe("opencodeServer config (v11, ADR-0024)", () => {
     });
     expect(merged.opencodeServer?.idleTimeoutMs).toBe(5000);
   });
+
+  test("mergeConfig carries permissionOverrides through the deep merge (T5 #40)", () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, {
+      opencodeServer: {
+        permissionOverrides: [{ permission: "bash", pattern: "git *", action: "allow" }],
+      },
+    });
+    expect(merged.opencodeServer?.permissionOverrides).toEqual([
+      { permission: "bash", pattern: "git *", action: "allow" },
+    ]);
+  });
 });
 
 describe("opencodeServerFromEnv", () => {

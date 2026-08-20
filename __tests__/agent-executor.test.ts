@@ -162,7 +162,7 @@ describe("executeAgentPhase", () => {
     }
   });
 
-  test("session created with the phase agent + model mapped to the wire shape", async () => {
+  test("session created with the phase agent + model + constitution permission ruleset", async () => {
     const stub = startOpenCodeStub({
       events: [{ type: "session.next.text.ended", text: "DONE" }],
       closeEvents: true,
@@ -174,10 +174,16 @@ describe("executeAgentPhase", () => {
         5000,
       );
       const create = stub.calls.find((c) => c.method === "POST" && c.path === "/session");
-      expect(create?.body).toEqual({
+      expect(create?.body).toMatchObject({
         agent: "build",
         model: { id: "deepseek-v4", providerID: "opencode" },
       });
+      const permission = (create?.body as { permission?: Array<{ permission: string; pattern: string; action: string }> })?.permission;
+      expect(permission).toBeDefined();
+      expect(permission!.length).toBeGreaterThan(0);
+      expect(permission!.every((r) => r.action === "deny")).toBe(true);
+      expect(permission!.some((r) => r.permission === "edit" && r.pattern.includes(".env"))).toBe(true);
+      expect(permission!.some((r) => r.permission === "bash" && r.pattern.includes("git push"))).toBe(true);
     } finally {
       stub.close();
     }
@@ -331,6 +337,78 @@ describe("executeAgentPhase - transcript collection", () => {
       expect(result.status).toBe("fail");
       expect(result.transcript).toContain("permission denied");
       expect(result.transcript).toContain("tools=2");
+    } finally {
+      stub.close();
+    }
+  });
+});
+
+// ── Post-hoc audit (T5 #40, D6.4) ────────────────────────────────────────────
+
+describe("executeAgentPhase - constitution audit", () => {
+  test("REJECTS a done task whose transcript touched a denylisted path", async () => {
+    const stub = startOpenCodeStub({
+      events: [
+        { type: "session.next.tool.called", callID: "call_1", tool: "bash", input: { cmd: "cat .env" } },
+        { type: "session.next.text.ended", text: "DONE" },
+      ],
+      closeEvents: true,
+    });
+    try {
+      const result = await executeAgentPhase(makeConfig(stub.url), agentPhase(), 5000);
+      expect(result.status).toBe("fail");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Constitution audit REJECTED");
+      expect(result.stderr).toContain(".env");
+      expect(result.stderr).toContain("call_1");
+      expect(stub.abortCount()).toBe(1);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("REJECTS a task whose patch touches a denylisted file", async () => {
+    const stub = startOpenCodeStub({
+      events: [
+        {
+          type: "sync",
+          syncEvent: {
+            type: "message.part.updated.1",
+            data: {
+              sessionID: "ses_1",
+              part: { type: "patch", hash: "abc", files: ["src/ok.ts", "auth/token.json"] },
+              time: 1,
+            },
+          },
+        },
+        { type: "session.next.text.ended", text: "DONE" },
+      ],
+      closeEvents: true,
+    });
+    try {
+      const result = await executeAgentPhase(makeConfig(stub.url), agentPhase(), 5000);
+      expect(result.status).toBe("fail");
+      expect(result.stderr).toContain("auth/token.json");
+      expect(result.stderr).toContain("Constitution audit REJECTED");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("does not REJECT a clean transcript", async () => {
+    const stub = startOpenCodeStub({
+      events: [
+        { type: "session.next.tool.called", callID: "call_1", tool: "bash", input: { cmd: "ls" } },
+        { type: "session.next.tool.success", callID: "call_1", result: "src\npackage.json" },
+        { type: "session.next.text.ended", text: "DONE" },
+      ],
+      closeEvents: true,
+    });
+    try {
+      const result = await executeAgentPhase(makeConfig(stub.url), agentPhase(), 5000);
+      expect(result.status).toBe("pass");
+      expect(result.stderr).toBe("");
+      expect(stub.abortCount()).toBe(0);
     } finally {
       stub.close();
     }

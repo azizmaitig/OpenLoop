@@ -1,3 +1,5 @@
+import type { PermissionRule } from './opencode-client.js';
+
 export type StateMachineState = 'init' | 'run' | 'verify' | 'done';
 
 export interface ValidatorDef {
@@ -99,6 +101,8 @@ export interface OpenCodeServerConfig {
   idleTimeoutMs?: number;
   /** Tail cap (chars) for the bounded transcript in the PhaseResult (ADR-0015, default 2000). */
   transcriptTailChars?: number;
+  /** Optional PermissionRuleset additions, appended after the built-in denies (last rule wins). */
+  permissionOverrides?: PermissionRule[];
 }
 
 export interface AgentServerConfig {

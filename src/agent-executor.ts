@@ -18,7 +18,12 @@ import {
   type OpenCodeStreamEvent,
 } from './opencode-client.js';
 import { DEFAULT_OPENCODE_SERVER_CONFIG } from './config.js';
-import { buildDenylistPromptInstruction } from './constitution.js';
+import {
+  auditTranscriptEntries,
+  buildDenylistPromptInstruction,
+  buildPermissionRuleset,
+  formatAuditIncidentReport,
+} from './constitution.js';
 import {
   TranscriptCollector,
   reconstructTranscript,
@@ -233,6 +238,7 @@ export async function executeAgentPhase(
     const session = await client.createSession({
       agent: phase.agent,
       model: resolveModel(phase.model),
+      permissionMode: buildPermissionRuleset(config.opencodeServer?.permissionOverrides),
     });
     sessionId = session.id;
 
@@ -247,6 +253,30 @@ export async function executeAgentPhase(
     });
 
     const durationMs = Date.now() - startTime;
+
+    // D6.4 post-hoc audit: any denylisted touch in the transcript REJECTS the
+    // task regardless of the terminal outcome — the constitution is observed,
+    // not just declared. Abort the session since a violation implies the agent
+    // acted against the deny ruleset.
+    const violations = auditTranscriptEntries(collector.entries);
+    if (violations.length > 0) {
+      await abortBestEffort(client, sessionId);
+      return withTranscript(
+        {
+          status: 'fail',
+          exitCode: 1,
+          stdout: outcome.kind === 'aborted' ? '' : outcome.stdout,
+          stderr: formatAuditIncidentReport(phase.name, violations),
+          durationMs,
+          evidencePath: '',
+        },
+        collector,
+        opts,
+        tailChars,
+        phase.name,
+      );
+    }
+
     if (outcome.kind === 'aborted') {
       await abortBestEffort(client, sessionId);
       return withTranscript(makeErrorResult('cancelled', durationMs), collector, opts, tailChars, phase.name);
