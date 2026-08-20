@@ -199,9 +199,10 @@ describe("agentServerFromEnv", () => {
 });
 
 describe("opencodeServer config (v11, ADR-0024)", () => {
-  test("DEFAULT_CONFIG ships opencodeServer with the default url", () => {
+  test("DEFAULT_CONFIG ships opencodeServer with the default url + idle timeout", () => {
     expect(DEFAULT_CONFIG.opencodeServer).toEqual({
       url: "http://127.0.0.1:4096",
+      idleTimeoutMs: 60000,
     });
   });
 
@@ -209,33 +210,73 @@ describe("opencodeServer config (v11, ADR-0024)", () => {
     const merged = mergeConfig(DEFAULT_CONFIG, {
       opencodeServer: { url: "http://127.0.0.1:4097" },
     });
-    expect(merged.opencodeServer).toEqual({ url: "http://127.0.0.1:4097" });
+    expect(merged.opencodeServer).toEqual({
+      url: "http://127.0.0.1:4097",
+      idleTimeoutMs: 60000,
+    });
   });
 
   test("mergeConfig deep-merges partial opencodeServer overrides over defaults", () => {
     const merged = mergeConfig(DEFAULT_CONFIG, { opencodeServer: {} });
-    expect(merged.opencodeServer).toEqual({ url: "http://127.0.0.1:4096" });
+    expect(merged.opencodeServer).toEqual({
+      url: "http://127.0.0.1:4096",
+      idleTimeoutMs: 60000,
+    });
   });
 
   test("mergeConfig does not mutate the base opencodeServer", () => {
     mergeConfig(DEFAULT_CONFIG, { opencodeServer: { url: "http://127.0.0.1:4097" } });
-    expect(DEFAULT_CONFIG.opencodeServer).toEqual({ url: "http://127.0.0.1:4096" });
+    expect(DEFAULT_CONFIG.opencodeServer).toEqual({
+      url: "http://127.0.0.1:4096",
+      idleTimeoutMs: 60000,
+    });
+  });
+
+  test("mergeConfig honours an idleTimeoutMs override", () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, {
+      opencodeServer: { url: "http://127.0.0.1:4096", idleTimeoutMs: 5000 },
+    });
+    expect(merged.opencodeServer?.idleTimeoutMs).toBe(5000);
   });
 });
 
 describe("opencodeServerFromEnv", () => {
-  test("returns empty overrides when no LOOP_OPENCODE_SERVER_URL is set", () => {
+  test("returns empty overrides when no LOOP_OPENCODE_SERVER_* vars are set", () => {
     delete process.env.LOOP_OPENCODE_SERVER_URL;
+    delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
     expect(opencodeServerFromEnv()).toEqual({});
   });
 
   test("reads the url from LOOP_OPENCODE_SERVER_URL", () => {
     delete process.env.LOOP_OPENCODE_SERVER_URL;
+    delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
     process.env.LOOP_OPENCODE_SERVER_URL = "http://127.0.0.1:4097";
     try {
       expect(opencodeServerFromEnv()).toEqual({ url: "http://127.0.0.1:4097" });
     } finally {
       delete process.env.LOOP_OPENCODE_SERVER_URL;
+    }
+  });
+
+  test("reads idleTimeoutMs from LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS", () => {
+    delete process.env.LOOP_OPENCODE_SERVER_URL;
+    delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
+    process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS = "5000";
+    try {
+      expect(opencodeServerFromEnv()).toEqual({ idleTimeoutMs: 5000 });
+    } finally {
+      delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
+    }
+  });
+
+  test("ignores a non-numeric LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS", () => {
+    delete process.env.LOOP_OPENCODE_SERVER_URL;
+    delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
+    process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS = "soon";
+    try {
+      expect(opencodeServerFromEnv()).toEqual({});
+    } finally {
+      delete process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS;
     }
   });
 });

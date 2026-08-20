@@ -1,91 +1,175 @@
 /**
- * agent-executor.ts — translates a `type: agent` phase into a sidecar
- * conversation and maps the terminal state back to a normal PhaseResult
- * (ADR-0023 decision 4: terminal conversation state → PhaseResult; the
- * 4-state FSM and checkpoint semantics are unchanged).
- *
- * T2 (issue #27): drives the conversation over the REST conversation API
- * (create → send prompt → poll → terminal status), with a hard per-phase
- * timeout abort. Tests run against a stubbed endpoint — zero live
- * OpenHands/Python. Real sidecar spawn/health/restart is T3
- * (src/agent-server.ts).
+ * agent-executor.ts — drives one opencode session per `type: agent` phase
+ * (v11, ADR-0024): assertHealthy → createSession → sendPrompt (task prompt +
+ * DONE convention) → watch the event stream until the DONE marker, or a
+ * StepFinishPart + idle timeout, or the hard timeoutMs cap → abort the
+ * session on failure/timeout → map the terminal state to a normal PhaseResult.
+ * 1 task = 1 session = 1 PhaseResult = 1 verify gate. The verify phase is the
+ * real gate — the DONE marker signals finished, not succeeded.
  */
 
-import type { LoopConfig, PhaseDef, PhaseResult, AgentTaskModel } from './types.js';
-import type { AgentConversationStatus, AgentEvent, AgentServerClient } from './agent-server-client.js';
-import { getAgentServerManager, createAgentServerManager } from './agent-server.js';
+import type { LoopConfig, PhaseDef, PhaseResult } from './types.js';
 import type { AgentServerManager } from './agent-server.js';
-import { createDockerSpawner, createDockerRunner, DOCKER_WORKSPACE_MOUNT } from './docker.js';
 import type { DockerRunner } from './docker.js';
+import {
+  createOpenCodeClient,
+  type OpenCodeClient,
+  type OpenCodeSessionModel,
+  type OpenCodeStreamEvent,
+} from './opencode-client.js';
+import { DEFAULT_OPENCODE_SERVER_CONFIG } from './config.js';
 import { buildDenylistPromptInstruction } from './constitution.js';
-import { DEFAULT_AGENT_SERVER_CONFIG } from './config.js';
 
-/** How often the executor polls conversation status. */
-export const AGENT_POLL_INTERVAL_MS = 250;
+/** The agent must reply exactly this when the task is done. */
+export const DONE_MARKER = 'DONE';
+
+/** Instruction appended to every agent prompt (D3a convention). */
+export const DONE_CONVENTION_INSTRUCTION = `When you have completed the task, reply exactly ${DONE_MARKER}.`;
 
 /** Fallback per-phase timeout when neither phase.timeoutMs nor config.phaseTimeoutMs is set. */
 const DEFAULT_PHASE_TIMEOUT_MS = 30000;
 
-/** Statuses that end the conversation (ADR-0023 decision 4: finished → pass, others → fail). */
-const TERMINAL_STATUSES: ReadonlySet<AgentConversationStatus> = new Set([
-  'finished',
-  'failed',
-  'aborted',
-  'stopped',
-  'error',
-]);
+/** Fallback idle timeout after a StepFinishPart when config.opencodeServer.idleTimeoutMs is unset. */
+const DEFAULT_IDLE_TIMEOUT_MS = 60000;
+
+/** Event types on the opencode session stream (SessionDurableEvent). */
+const EVENT_TEXT_ENDED = 'session.next.text.ended';
+const EVENT_STEP_ENDED = 'session.next.step.ended';
+const EVENT_STEP_FAILED = 'session.next.step.failed';
 
 /**
- * Resolve the "provider/model" string the server's LiteLLM accepts.
- * Per-task `model:` wins; otherwise agentServer.defaults supplies it —
- * as a full "provider/model" string or a provider+model pair.
+ * Build the prompt sent to the agent: the denylist rides inside the prompt as
+ * the soft control (the loop's command guard cannot see agent actions), then
+ * the task prompt, then the DONE convention as the final instruction.
  */
-function resolveLlmModel(
-  phaseModel: AgentTaskModel | undefined,
-  defaults: { provider?: string; model?: string } | undefined,
-): string | undefined {
-  if (phaseModel) return `${phaseModel.provider}/${phaseModel.model}`;
-  if (!defaults) return undefined;
-  if (defaults.model?.includes('/')) return defaults.model;
-  if (defaults.provider && defaults.model) return `${defaults.provider}/${defaults.model}`;
-  return defaults.model ?? undefined;
+export function buildAgentPrompt(prompt: string, workingDir: string): string {
+  return [
+    buildDenylistPromptInstruction(workingDir),
+    prompt.trim(),
+    DONE_CONVENTION_INSTRUCTION,
+  ].join('\n\n');
 }
 
-/** Best-effort final agent text; empty when the endpoint is unavailable. */
-async function finalResponseText(
-  client: AgentServerClient,
-  conversationId: string,
-): Promise<string> {
-  try {
-    return await client.getAgentFinalResponse(conversationId);
-  } catch (err) {
-    console.error(
-      `[agent-executor] agent_final_response unavailable (falling back to events): ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return '';
-  }
+function hasDoneMarker(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => line.trim() === DONE_MARKER);
 }
 
 function makeErrorResult(stderr: string, durationMs: number): PhaseResult {
   return { status: 'error', exitCode: -1, stdout: '', stderr, durationMs, evidencePath: '' };
 }
 
+type AgentOutcome =
+  | { kind: 'done'; stdout: string; via: 'done-marker' | 'step-idle' | 'stream-end' }
+  | { kind: 'timeout'; stdout: string }
+  | { kind: 'error'; stdout: string; detail: string }
+  | { kind: 'aborted' };
+
 /**
- * Execute one agent phase: create a conversation, send the prompt, poll to a
- * terminal status (or timeout/abort), and map the result to a PhaseResult.
+ * Consume the event stream until completion: DONE marker in a text event,
+ * StepFinishPart + idle timeout, stream close, hard deadline, or failure.
+ * Never throws — failures become outcomes.
+ */
+async function collectOutcome(
+  events: AsyncIterable<OpenCodeStreamEvent>,
+  opts: {
+    hardDeadlineMs: number;
+    idleTimeoutMs: number;
+    signal: AbortSignal;
+  },
+): Promise<AgentOutcome> {
+  const iter = events[Symbol.asyncIterator]();
+  let stepEnded = false;
+  let stepEndedAt = 0;
+  let lastText = '';
+
+  for (;;) {
+    if (opts.signal.aborted) return { kind: 'aborted' };
+    const now = Date.now();
+    if (now >= opts.hardDeadlineMs) return { kind: 'timeout', stdout: lastText };
+
+    const idleDeadline = stepEnded ? stepEndedAt + opts.idleTimeoutMs : Infinity;
+    const nextTimer = Math.min(opts.hardDeadlineMs, idleDeadline);
+    const waitMs = Math.max(0, nextTimer - now);
+
+    let raced: IteratorResult<OpenCodeStreamEvent> | 'timer';
+    try {
+      raced = await Promise.race([
+        iter.next(),
+        sleep(waitMs).then(() => 'timer' as const),
+      ]);
+    } catch (err) {
+      if (opts.signal.aborted) return { kind: 'aborted' };
+      return { kind: 'error', stdout: lastText, detail: err instanceof Error ? err.message : String(err) };
+    }
+
+    if (raced === 'timer') {
+      if (Date.now() >= opts.hardDeadlineMs) return { kind: 'timeout', stdout: lastText };
+      if (stepEnded) return { kind: 'done', stdout: lastText, via: 'step-idle' };
+      continue; // idle elapsed before any step finished — the hard cap still bounds the wait
+    }
+
+    if (raced.done) return { kind: 'done', stdout: lastText, via: 'stream-end' };
+
+    const ev = raced.value;
+    const type = typeof ev.data?.type === 'string' ? ev.data.type : ev.event;
+
+    if (type === EVENT_STEP_FAILED) {
+      return {
+        kind: 'error',
+        stdout: lastText,
+        detail: typeof ev.data?.error === 'string' ? ev.data.error : 'agent step failed',
+      };
+    }
+    if (type === EVENT_STEP_ENDED) {
+      const finish = typeof ev.data?.finish === 'string' ? ev.data.finish : '';
+      if (finish === 'error' || finish === 'aborted') {
+        return { kind: 'error', stdout: lastText, detail: `agent step finished with "${finish}"` };
+      }
+      if (!stepEnded) {
+        stepEnded = true;
+        stepEndedAt = Date.now();
+      }
+      continue;
+    }
+    if (type === EVENT_TEXT_ENDED) {
+      const text = typeof ev.data?.text === 'string' ? ev.data.text : '';
+      if (text) lastText = text;
+      if (hasDoneMarker(text)) return { kind: 'done', stdout: text, via: 'done-marker' };
+    }
+  }
+}
+
+async function abortBestEffort(
+  client: OpenCodeClient,
+  sessionId: string | undefined,
+): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await client.abortSession(sessionId);
+  } catch (err) {
+    // Best-effort cleanup — a failed abort must never fail the phase.
+    console.error(`[agent-executor] session abort failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Execute one agent phase: one opencode session, prompt + DONE convention,
+ * event-driven completion, session abort on failure/timeout.
+ * `manager`/`dockerRunner` are legacy OpenHands params (ADR-0023) kept for
+ * call-site compatibility — v11 sessions are pure HTTP, no sidecar process.
  */
 export async function executeAgentPhase(
   config: LoopConfig,
   phase: PhaseDef,
   timeoutMs?: number,
   signal?: AbortSignal,
-  manager?: AgentServerManager,
-  dockerRunner?: DockerRunner,
+  _manager?: AgentServerManager,
+  _dockerRunner?: DockerRunner,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
 
   // Schema guarantees a prompt at plan load; guard programmatic phases too —
-  // an empty prompt would burn a conversation on nothing.
+  // an empty prompt would burn a session on nothing.
   if (!phase.prompt || phase.prompt.trim() === '') {
     return makeErrorResult(
       `Agent task "${phase.name}" has no prompt — the prompt is what the agent executes.`,
@@ -93,123 +177,78 @@ export async function executeAgentPhase(
     );
   }
 
-  // Hard deadline: timeout and external abort both cancel in-flight HTTP.
   const effectiveTimeout = timeoutMs ?? config.phaseTimeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS;
+  const idleTimeoutMs = config.opencodeServer?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const baseUrl = config.opencodeServer?.url ?? DEFAULT_OPENCODE_SERVER_CONFIG.url;
+  const client = createOpenCodeClient(baseUrl);
   const timeoutAc = new AbortController();
   const effectiveSignal = signal ? AbortSignal.any([signal, timeoutAc.signal]) : timeoutAc.signal;
 
-  let client: AgentServerClient | undefined;
-  let conversationId: string | undefined;
-
-  // Workspace targeting (ADR-0023 decision 5): local (default) = the loop's
-  // working directory (the L2 git worktree when running L2); docker = the
-  // container's /workspace mount (verified agent-server image convention).
-  const dockerWorkspace = phase.workspace?.type === 'docker';
-  const workingDir = dockerWorkspace ? DOCKER_WORKSPACE_MOUNT : process.cwd();
-  // Trust tier (decision 7): the denylist rides inside the prompt as the soft
-  // control — the loop's command guard cannot see agent actions. Prepend so a
-  // trailing "ignore everything above" cannot neutralize it.
-  const effectivePrompt = [buildDenylistPromptInstruction(workingDir), phase.prompt.trim()].join('\n\n');
-  // LLM config (decision 6): per-task `model:` wins; agentServer.defaults
-  // supplies the endpoint (model/baseUrl/apiKey) the conversation runs on.
-  const defaults = config.agentServer?.defaults;
-  const model = resolveLlmModel(phase.model, defaults);
-  const llm: { model?: string; baseUrl?: string; apiKey?: string } | undefined =
-    model || defaults?.baseUrl || defaults?.apiKey
-      ? { model, baseUrl: defaults?.baseUrl, apiKey: defaults?.apiKey }
-      : undefined;
-
-  // Local tasks share the uvx sidecar singleton (provided manager wins);
-  // docker tasks ALWAYS provision their own containerized sidecar per task
-  // (one container = one conversation, verified mechanism) — a shared server
-  // cannot provide container isolation, so the docker path overrides any
-  // provided manager.
-  const mgr = dockerWorkspace
-    ? createAgentServerManager(
-        {
-          ...config,
-          agentServer: { ...(config.agentServer ?? DEFAULT_AGENT_SERVER_CONFIG), manage: true },
-        },
-        createDockerSpawner(dockerRunner ?? createDockerRunner()),
-      )
-    : (manager ?? getAgentServerManager(config));
+  let sessionId: string | undefined;
 
   try {
-    client = await mgr.getClient(effectiveSignal);
-    // The prompt rides in `initial_message` at creation (verified server
-    // contract) — no separate send call needed.
-    const conversation = await client.createConversation({
-      workingDir,
-      prompt: effectivePrompt,
-      llm,
+    await client.assertHealthy();
+    const session = await client.createSession({
+      agent: phase.agent,
+      model: resolveModel(phase.model),
     });
-    conversationId = conversation.id;
+    sessionId = session.id;
 
-    for (;;) {
-      if (effectiveSignal.aborted) {
-        return makeErrorResult('cancelled', Date.now() - startTime);
-      }
-      if (Date.now() - startTime >= effectiveTimeout) {
-        timeoutAc.abort();
-        return makeErrorResult(
-          `Agent task "${phase.name}" timed out after ${effectiveTimeout}ms — conversation still not terminal.`,
-          Date.now() - startTime,
-        );
-      }
-      const current = await client.getConversation(conversationId);
-      if (TERMINAL_STATUSES.has(current.status)) {
-        const finalResponse = await finalResponseText(client, conversationId);
-        return mapTerminalResult(current.status, current.events, finalResponse, Date.now() - startTime);
-      }
-      await sleep(AGENT_POLL_INTERVAL_MS);
+    const prompt = buildAgentPrompt(phase.prompt, process.cwd());
+    await client.sendPrompt(sessionId, prompt);
+
+    const outcome = await collectOutcome(client.streamEvents(sessionId, { signal: effectiveSignal }), {
+      hardDeadlineMs: startTime + effectiveTimeout,
+      idleTimeoutMs,
+      signal: effectiveSignal,
+    });
+
+    const durationMs = Date.now() - startTime;
+    if (outcome.kind === 'aborted') {
+      await abortBestEffort(client, sessionId);
+      return makeErrorResult('cancelled', durationMs);
     }
+    if (outcome.kind === 'timeout') {
+      await abortBestEffort(client, sessionId);
+      return {
+        status: 'fail',
+        exitCode: 1,
+        stdout: outcome.stdout,
+        stderr: `Agent task "${phase.name}" timed out after ${effectiveTimeout}ms — session aborted, verify will judge.`,
+        durationMs,
+        evidencePath: '',
+      };
+    }
+    if (outcome.kind === 'error') {
+      await abortBestEffort(client, sessionId);
+      return {
+        status: 'fail',
+        exitCode: 1,
+        stdout: outcome.stdout,
+        stderr: `Agent task "${phase.name}" failed: ${outcome.detail}`,
+        durationMs,
+        evidencePath: '',
+      };
+    }
+    // done (DONE marker | StepFinishPart + idle | stream closed): hand off —
+    // the verify phase is the real gate, DONE only signals finished.
+    return {
+      status: 'pass',
+      exitCode: 0,
+      stdout: outcome.stdout,
+      stderr: '',
+      durationMs,
+      evidencePath: '',
+    };
   } catch (err) {
+    await abortBestEffort(client, sessionId);
     return makeErrorResult(err instanceof Error ? err.message : String(err), Date.now() - startTime);
-  } finally {
-    if (conversationId) {
-      try {
-        await client?.deleteConversation(conversationId);
-      } catch (err) {
-        // Best-effort cleanup — a missed DELETE must never fail the phase.
-        console.error(`[agent-executor] conversation cleanup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    if (dockerWorkspace) {
-      try {
-        await mgr.stop();
-      } catch (err) {
-        // Best-effort — a container that fails to stop must never fail the phase.
-        console.error(`[agent-executor] docker container cleanup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
   }
 }
 
-function mapTerminalResult(
-  status: AgentConversationStatus,
-  events: AgentEvent[],
-  finalResponse: string,
-  durationMs: number,
-): PhaseResult {
-  // stdout = the agent's final response (verified server endpoint); fall back
-  // to the last agent message / status event when it is unavailable (ADR-0023 d4).
-  const reversed = [...events].reverse();
-  const lastAgentMessage = reversed.find((e) => e.type === 'message' && e.source === 'agent');
-  const stdout =
-    finalResponse ||
-    lastAgentMessage?.content ||
-    reversed.find((e) => e.type === 'status_changed')?.content ||
-    '';
-
-  if (status === 'finished') {
-    return { status: 'pass', exitCode: 0, stdout, stderr: '', durationMs, evidencePath: '' };
-  }
-
-  const errorEvent = reversed.find((e) => e.type === 'error');
-  const stderr = errorEvent?.content
-    ? `Agent conversation ended with status "${status}": ${errorEvent.content}`
-    : `Agent conversation ended with status "${status}".`;
-  return { status: 'fail', exitCode: 1, stdout, stderr, durationMs, evidencePath: '' };
+function resolveModel(phaseModel: PhaseDef['model']): OpenCodeSessionModel | undefined {
+  if (!phaseModel) return undefined;
+  return { id: phaseModel.model, providerID: phaseModel.provider };
 }
 
 function sleep(ms: number): Promise<void> {
