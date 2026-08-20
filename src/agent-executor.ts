@@ -80,6 +80,10 @@ export interface AgentPhaseOpts {
   runName?: string;
   iteration?: number;
   outputDir?: string;
+  /** Worktree workspace id — the session is created inside it (T6 isolation). */
+  workspaceID?: string;
+  /** Worktree directory — the denylist prompt is anchored here (T6 isolation). */
+  worktreeDir?: string;
 }
 
 /** Attach the bounded transcript to a result and offload the full JSONL when a run name is known. */
@@ -239,10 +243,11 @@ export async function executeAgentPhase(
       agent: phase.agent,
       model: resolveModel(phase.model),
       permissionMode: buildPermissionRuleset(config.opencodeServer?.permissionOverrides),
+      workspaceID: opts?.workspaceID,
     });
     sessionId = session.id;
 
-    const prompt = buildAgentPrompt(phase.prompt, process.cwd());
+    const prompt = buildAgentPrompt(phase.prompt, opts?.worktreeDir ?? process.cwd());
     await client.sendPrompt(sessionId, prompt);
 
     const outcome = await collectOutcome(client.streamEvents(sessionId, { signal: effectiveSignal }), {

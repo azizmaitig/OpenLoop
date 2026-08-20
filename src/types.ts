@@ -44,6 +44,8 @@ export interface PhaseDef {
   model?: AgentTaskModel;
   /** Workspace for agent phases: local (default) or docker sandbox. */
   workspace?: AgentTaskWorkspace;
+  /** Run this shell phase inside the isolated worktree (T6). Requires ExecutionDeps.target. */
+  worktree?: boolean;
   expectedExitCode: number;
   timeoutMs: number;
   llm?:
@@ -186,6 +188,8 @@ export interface PlanYamlTask {
   model?: AgentTaskModel;
   /** Workspace for agent tasks: local (default) or docker sandbox. */
   workspace?: AgentTaskWorkspace;
+  /** Run this task inside the isolated worktree (T6). Requires a plan-level target. */
+  worktree?: boolean;
   timeoutMs?: number;
   llm?: { mcpServer: string; tool: string; prompt: string } | { provider: string; prompt: string };
   healCommand?: string;

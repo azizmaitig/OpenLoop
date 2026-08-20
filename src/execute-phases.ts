@@ -34,6 +34,7 @@ import type { RunLogEntry } from './run-log.js';
 import { topoSortLayers } from './phase-graph.js';
 import { makeEvent } from './events.js';
 import { applyOutputBounds } from './output-store.js';
+import type { TargetHandle } from './worktree-manager.js';
 
 /** Everything executePhaseGroup needs from the caller's context. */
 export interface ExecutionDeps {
@@ -55,6 +56,8 @@ export interface ExecutionDeps {
   agentServerManager?: AgentServerManager;
   /** Optional: docker runner for docker-workspace agent tasks (per-task containers) */
   dockerRunner?: DockerRunner;
+  /** Optional: isolated target handle (T6) — agent phases get its workspaceID + worktreeDir; shell phases with `worktree: true` run inside its directory. */
+  target?: TargetHandle;
 }
 
 /** Result of a phase execution group (one iteration's phases). */
@@ -247,9 +250,30 @@ function executePhase(
   signal?: AbortSignal,
   agentOpts?: { runName?: string; iteration?: number },
 ): Promise<PhaseResult> {
-  return phase.type === 'agent'
-    ? executeAgentPhase(deps.config, phase, timeoutMs, signal, deps.agentServerManager, deps.dockerRunner, agentOpts)
-    : executeShellCommand(phase.command, timeoutMs, signal);
+  if (phase.type === 'agent') {
+    // T6: an isolated git target rides the session — the agent operates in the
+    // worktree (workspaceID) and the denylist prompt is anchored to it.
+    const target = deps.target;
+    const isolated = target?.mode === 'git';
+    return executeAgentPhase(
+      deps.config,
+      phase,
+      timeoutMs,
+      signal,
+      deps.agentServerManager,
+      deps.dockerRunner,
+      {
+        ...agentOpts,
+        ...(isolated && target.mode === 'git'
+          ? { workspaceID: target.workspaceID, worktreeDir: target.directory }
+          : {}),
+      },
+    );
+  }
+  // T6: a shell phase flagged `worktree: true` runs inside the isolated target.
+  const target = deps.target;
+  const cwd = phase.worktree && target?.mode === 'git' ? target.directory : undefined;
+  return executeShellCommand(phase.command, timeoutMs, signal, cwd);
 }
 
 async function runSinglePhase(
@@ -483,6 +507,7 @@ async function executeShellCommand(
   command: string | undefined,
   timeoutMs?: number,
   signal?: AbortSignal,
+  cwd?: string,
 ): Promise<PhaseResult> {
   const startTime = Date.now();
   if (!command || command.trim() === '') {
@@ -507,7 +532,7 @@ async function executeShellCommand(
   }
 
   try {
-    const result = await runCommand(command, { timeoutMs });
+    const result = await runCommand(command, { timeoutMs, cwd });
     if (signal?.aborted) {
       return makeCancelledResult(Date.now() - startTime);
     }

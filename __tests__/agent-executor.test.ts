@@ -27,6 +27,54 @@ function agentPhase(overrides: Partial<PhaseDef> = {}): PhaseDef {
 // ── executeAgentPhase ─────────────────────────────────────────────────────────
 
 describe("executeAgentPhase", () => {
+  test("passes workspaceID to createSession when opts.workspaceID is set (T6 worktree isolation)", async () => {
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "DONE" }],
+      closeEvents: true,
+    });
+    try {
+      const result = await executeAgentPhase(
+        makeConfig(stub.url),
+        agentPhase(),
+        5000,
+        undefined,
+        undefined,
+        undefined,
+        { workspaceID: "wrk_123" },
+      );
+      expect(result.status).toBe("pass");
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/session");
+      expect(create?.body).toMatchObject({ workspaceID: "wrk_123" });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("anchors the denylist prompt to opts.worktreeDir when set (T6 worktree isolation)", async () => {
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "DONE" }],
+      closeEvents: true,
+    });
+    try {
+      const worktreeDir = "C:/tmp/agent-loop-wt-t6";
+      const result = await executeAgentPhase(
+        makeConfig(stub.url),
+        agentPhase(),
+        5000,
+        undefined,
+        undefined,
+        undefined,
+        { worktreeDir },
+      );
+      expect(result.status).toBe("pass");
+      const prompt = stub.lastPrompt();
+      expect(prompt).toContain(`Working directory: ${worktreeDir}.`);
+      expect(prompt).not.toContain(`Working directory: ${process.cwd()}.`);
+    } finally {
+      stub.close();
+    }
+  });
+
   test("DONE marker → pass, stdout = agent text, prompt carries DONE convention + denylist", async () => {
     const stub = startOpenCodeStub({
       events: [{ type: "session.next.text.ended", text: "DONE" }],
