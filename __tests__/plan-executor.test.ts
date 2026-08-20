@@ -226,6 +226,28 @@ tasks:
     expect(agentPhase.command).toBeUndefined();
   });
 
+  test("maps worktree: true from plan YAML to PhaseDef.worktree (T6 isolation)", async () => {
+    const planYaml = `planName: wt-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    worktree: true
+  - id: verify
+    command: bun test
+    worktree: true
+`;
+    const phases = await beforeLoop(planYaml);
+    const agentPhase = phases.find((p) => p.name === "analyze")!;
+    const verifyPhase = phases.find((p) => p.name === "verify")!;
+    expect(agentPhase.worktree).toBe(true);
+    expect(verifyPhase.worktree).toBe(true);
+    const readState = phases.find((p) => p.name === "read-state")!;
+    expect(readState.worktree).toBeUndefined();
+  });
+
   test("rejects a plan whose agent task combines type with command", async () => {
     const bad = `planName: bad-agent
 tasks:

@@ -152,6 +152,14 @@ function validateTask(
     });
   }
 
+  // Rule: worktree flag must be boolean (T6 isolation).
+  if (task.worktree !== undefined && typeof task.worktree !== 'boolean') {
+    errors.push({
+      rule: 'invalid-worktree-flag',
+      detail: `${where} has worktree "${String(task.worktree)}" which is not a boolean. Declare worktree: true to isolate this task in a git worktree.`,
+    });
+  }
+
   // Rule: llm block, if present, must be well-formed.
   if (task.llm) {
     if ('provider' in task.llm) {

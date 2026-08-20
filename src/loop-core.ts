@@ -27,6 +27,8 @@ import { setCurrentState } from './state.js';
 import type { Plugin } from './plugins.js';
 import type { LoopConfig, LoopState, PlanYamlDoc } from './types.js';
 import { makeEvent } from './events.js';
+import { prepareTarget, finalizeTarget, discardTarget } from './worktree-manager.js';
+import type { TargetSpec, TargetHandle, WorktreeManagerDeps } from './worktree-manager.js';
 
 export interface LoopBodyDeps {
   sm: StateMachine;
@@ -51,6 +53,10 @@ export interface LoopBodyDeps {
   /** Optional: abort signal for early termination. Checked before and during phase execution. */
   signal?: AbortSignal;
   executePhaseGroup?: typeof executePhaseGroup;
+  /** Optional: isolated target spec (T6) — prepared before the phases, finalized after (approved = allPassed), discarded on throw. */
+  targetSpec?: TargetSpec;
+  /** Optional: worktree manager deps (T6) — required when targetSpec is set. */
+  worktreeManager?: WorktreeManagerDeps;
 }
 
 export interface LoopBodyResult {
@@ -84,21 +90,38 @@ export async function runLoopBody(deps: LoopBodyDeps): Promise<LoopBodyResult> {
   await writeState(state);
 
   const runPhases = deps.executePhaseGroup ?? executePhaseGroup;
-  const phaseResult = await runPhases(
-    {
-      config,
-      plugins,
-      writeState,
-      onPhaseFailed: deps.onPhaseFailed ?? (() => {}),
-      planPath: deps.planPath,
-      getPlanDoc: deps.getPlanDoc,
-      logPath: deps.logPath,
-      broadcast: deps.broadcast,
-      signal: deps.signal,
-    },
-    state,
-    iteration,
-  );
+  const baseExecutionDeps: ExecutionDeps = {
+    config,
+    plugins,
+    writeState,
+    onPhaseFailed: deps.onPhaseFailed ?? (() => {}),
+    planPath: deps.planPath,
+    getPlanDoc: deps.getPlanDoc,
+    logPath: deps.logPath,
+    broadcast: deps.broadcast,
+    signal: deps.signal,
+  };
+
+  let phaseResult;
+  if (deps.targetSpec && deps.worktreeManager) {
+    // T6: isolated run — prepare the target (worktree or .bak), run the phases
+    // with the handle threaded through ExecutionDeps, then resolve the
+    // APPROVE/REJECT lifecycle. Any throw discards the target (leak guard).
+    const target = await prepareTarget(deps.targetSpec, deps.worktreeManager);
+    try {
+      phaseResult = await runPhases(
+        { ...baseExecutionDeps, target },
+        state,
+        iteration,
+      );
+      await finalizeTarget(target, { approved: phaseResult.allPassed }, deps.worktreeManager);
+    } catch (err) {
+      await discardTarget(target, deps.worktreeManager).catch(() => {});
+      throw err;
+    }
+  } else {
+    phaseResult = await runPhases(baseExecutionDeps, state, iteration);
+  }
   const allPassed = phaseResult.allPassed;
   state = phaseResult.state;
   setCurrentState(state);

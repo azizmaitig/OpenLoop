@@ -130,6 +130,7 @@ function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
     agent: task.agent,
     model: task.model,
     workspace: task.workspace,
+    worktree: task.worktree,
     timeoutMs: task.timeoutMs ?? 30000,
     expectedExitCode: 0,
     healCommand: task.healCommand,

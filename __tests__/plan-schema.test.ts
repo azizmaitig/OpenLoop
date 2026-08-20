@@ -195,6 +195,25 @@ describe("agent task rules (v10, ADR-0023)", () => {
     expect(err!.detail).toContain("local | docker");
   });
 
+  test("accepts worktree: true on agent and command tasks (T6 isolation)", () => {
+    const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
+      { id: "analyze", type: "agent", prompt: "x", worktree: true },
+      { id: "verify", command: "bun test", worktree: true },
+    ]);
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("rejects a non-boolean worktree field (T6 isolation)", () => {
+    const doc = plan([
+      { id: "analyze", type: "agent", prompt: "x", worktree: "yes" as unknown as boolean },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-worktree-flag");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("worktree");
+  });
+
   test("rejects an unknown task type", () => {
     const doc = plan([
       // @ts-expect-error intentionally invalid type value
