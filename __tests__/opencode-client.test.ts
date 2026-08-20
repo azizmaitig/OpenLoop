@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createOpenCodeClient, OpenCodeApiError } from "../src/opencode-client.js";
 import type { OpenCodeClient, OpenCodeSession } from "../src/opencode-client.js";
+import { join } from "node:path";
 
 // ── Mock opencode server ──────────────────────────────────────────────────────
 // Implements the REAL opencode HTTP surface (verified against the live server's
@@ -46,6 +47,8 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
   let createdId: string | undefined;
   const calls: StubCall[] = [];
   const sessions = new Map<string, OpenCodeSession>();
+  const workspaces = new Map<string, Record<string, unknown>>();
+  const worktrees: string[] = [];
 
   const server = Bun.serve({
     port: 0,
@@ -53,7 +56,7 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
       const url = new URL(req.url);
       const path = url.pathname;
       let body: unknown;
-      if (req.method === "POST") {
+      if (req.method === "POST" || req.method === "DELETE") {
         try {
           body = await req.json();
         } catch {
@@ -79,12 +82,13 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
         if (behavior.failCreate) {
           return Response.json({ error: "stub: create failed" }, { status: 500 });
         }
-        const b = (body ?? {}) as { agent?: string; model?: unknown; permission?: unknown };
+        const b = (body ?? {}) as { agent?: string; model?: unknown; permission?: unknown; workspaceID?: string };
         const session: OpenCodeSession = {
           id: `ses_${nextId++}`,
           title: "stub session",
           agent: b.agent,
           model: b.model as OpenCodeSession["model"],
+          workspaceID: b.workspaceID,
           directory: process.cwd(),
           time: { created: Date.now(), updated: Date.now() },
         };
@@ -112,6 +116,32 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
 
       if (req.method === "POST" && /^\/session\/[^/]+\/prompt_async$/.test(path)) {
         return new Response(null, { status: 204 });
+      }
+
+      if (req.method === "POST" && path === "/experimental/workspace") {
+        const b = (body ?? {}) as { type?: string; branch?: string };
+        const workspace = {
+          id: `wrk_${nextId++}`,
+          type: b.type ?? "worktree",
+          name: "stub-workspace",
+          branch: b.branch ?? null,
+          directory: join(process.cwd(), "stub-worktree", (b.branch ?? "anon").replace(/[^a-zA-Z0-9_-]/g, "-")),
+          extra: null,
+          projectID: "stub-project",
+          timeUsed: 0,
+        };
+        workspaces.set(workspace.id, workspace);
+        return Response.json(workspace);
+      }
+
+      if (req.method === "DELETE" && path === "/experimental/worktree") {
+        const b = (body ?? {}) as { directory?: string };
+        if (!b.directory) return Response.json({ error: "stub: directory required" }, { status: 400 });
+        return Response.json(true);
+      }
+
+      if (req.method === "GET" && path === "/experimental/worktree") {
+        return Response.json([...worktrees]);
       }
 
       if (req.method === "GET" && /^\/api\/session\/[^/]+\/event$/.test(path)) {
@@ -313,6 +343,58 @@ describe("createOpenCodeClient", () => {
       const session = await client.createSession({ agent: "build" });
       expect(session.id).toMatch(/^ses_/);
 expect(await client.listSessions()).toHaveLength(1);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("createSession sends workspaceID when provided (worktree isolation T6)", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(stub.url);
+      const session = await client.createSession({ workspaceID: "wrk_123" });
+      expect(session.workspaceID).toBe("wrk_123");
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/session");
+      expect(create?.body).toEqual({ workspaceID: "wrk_123" });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("createWorkspace POSTs { type: 'worktree', branch } to /experimental/workspace", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(stub.url);
+      const ws = await client.createWorkspace({ type: "worktree", branch: "agent/t6-test" });
+      expect(ws.id).toMatch(/^wrk_/);
+      expect(ws.type).toBe("worktree");
+      expect(ws.branch).toBe("agent/t6-test");
+      expect(ws.directory).toContain("stub-worktree");
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/experimental/workspace");
+      expect(create?.body).toEqual({ type: "worktree", branch: "agent/t6-test" });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("deleteWorktree DELETEs /experimental/worktree with { directory }", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(stub.url);
+      await client.deleteWorktree("C:/tmp/wt");
+      const del = stub.calls.find((c) => c.method === "DELETE" && c.path === "/experimental/worktree");
+      expect(del?.body).toEqual({ directory: "C:/tmp/wt" });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("listWorktrees GETs /experimental/worktree and returns the worktree paths", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(stub.url);
+      expect(await client.listWorktrees()).toEqual([]);
+      expect(stub.calls.some((c) => c.method === "GET" && c.path === "/experimental/worktree")).toBe(true);
     } finally {
       stub.close();
     }
