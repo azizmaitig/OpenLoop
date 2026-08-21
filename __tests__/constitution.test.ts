@@ -140,4 +140,209 @@ describe("checkPlanAgainstConstitution", () => {
     const v = checkPlanAgainstConstitution(doc);
     expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
   });
+
+  // ── Gap #4: task.prompt (type: agent) ───────────────────────────────────────
+
+  test("flags denylisted token in a task.prompt (.env)", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        {
+          id: "agent-leak",
+          type: "agent",
+          prompt: "Edit .env to enable the feature flag.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+    // The violation detail must name the source field so the message
+    // distinguishes prompt from command/healCommand.
+    expect(
+      v.some(
+        (x) =>
+          x.rule === "denylisted-path" &&
+          x.detail.includes('"agent-leak" prompt'),
+      ),
+    ).toBe(true);
+  });
+
+  test("flags denylisted token in a task.prompt (secrets/)", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        {
+          id: "agent-leak",
+          type: "agent",
+          prompt: "Read the config from secrets/ and summarize it.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("accepts a clean agent task prompt", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        {
+          id: "agent-work",
+          type: "agent",
+          prompt: "Analyze the auth module and propose a report.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    expect(checkPlanAgainstConstitution(doc)).toEqual([]);
+  });
+
+  test("flags denylisted token in a task.prompt case-insensitively (.ENV)", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        {
+          id: "agent-leak",
+          type: "agent",
+          prompt: "Rotate the keys stored under .ENV.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("treats command, healCommand, and prompt sources identically", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "cmd-leak", command: "echo .env", timeoutMs: 30000 },
+        { id: "heal-leak", command: "echo ok", timeoutMs: 30000, healCommand: "rm .env" },
+        {
+          id: "agent-leak",
+          type: "agent",
+          prompt: "Please edit .env.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const denylisted = checkPlanAgainstConstitution(doc).filter(
+      (x) => x.rule === "denylisted-path",
+    );
+    expect(denylisted).toHaveLength(3);
+    expect(denylisted.some((x) => x.detail.includes('"cmd-leak" command'))).toBe(true);
+    expect(denylisted.some((x) => x.detail.includes('"heal-leak" healCommand'))).toBe(true);
+    expect(denylisted.some((x) => x.detail.includes('"agent-leak" prompt'))).toBe(true);
+  });
+
+  test("flags denylisted token in a composite agent sub-phase prompt", () => {
+    // Composite phases share the PlanYamlTask rules (plan-schema validates
+    // `type: agent` sub-phases with missing-agent-prompt), so their prompts
+    // must be scanned with the same symmetry as task prompts.
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+      composites: [
+        {
+          id: "agent-step",
+          phases: [
+            {
+              id: "agent",
+              type: "agent",
+              prompt: "Edit .env and report the diff.",
+              timeoutMs: 30000,
+            },
+          ],
+        },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(
+      v.some(
+        (x) =>
+          x.rule === "denylisted-path" &&
+          x.detail.includes('Composite "agent-step" "agent" prompt'),
+      ),
+    ).toBe(true);
+  });
+
+  // ── Gap #5: secret patterns (*.pem, *.key, id_rsa, aws_access_key) ──────────
+
+  test("flags *.pem token in a command", () => {
+    const doc = makePlan([
+      { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+      { id: "leak", command: "cat server.pem", timeoutMs: 30000 },
+      { id: "verify", command: "bun run build", timeoutMs: 120000 },
+    ]);
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("flags *.key token in a healCommand", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        { id: "work", command: "echo do", timeoutMs: 30000, healCommand: "cp tls.key /tmp" },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("flags id_rsa token in a command", () => {
+    const doc = makePlan([
+      { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+      { id: "leak", command: "cat ~/.ssh/id_rsa", timeoutMs: 30000 },
+      { id: "verify", command: "bun run build", timeoutMs: 120000 },
+    ]);
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("flags aws_access_key token in a task.prompt", () => {
+    const doc: PlanYamlDoc = {
+      planName: "test-plan",
+      tasks: [
+        { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+        {
+          id: "agent-leak",
+          type: "agent",
+          prompt: "Print the aws_access_key value to confirm rotation.",
+          timeoutMs: 30000,
+        },
+        { id: "verify", command: "bun run build", timeoutMs: 120000 },
+      ],
+    };
+    const v = checkPlanAgainstConstitution(doc);
+    expect(v.some((x) => x.rule === "denylisted-path")).toBe(true);
+  });
+
+  test("does not false-positive on bare key/pem substrings", () => {
+    // The glob patterns are matched as `.key` / `.pem` (leading dot) so
+    // plain words like "keyboard" / "monkey" stay clean.
+    const doc = makePlan([
+      { id: "read-state", command: "type STATE.md", timeoutMs: 5000 },
+      { id: "docs", command: "echo keyboard monkey", timeoutMs: 30000 },
+      { id: "verify", command: "bun run build", timeoutMs: 120000 },
+    ]);
+    expect(checkPlanAgainstConstitution(doc)).toEqual([]);
+  });
 });
