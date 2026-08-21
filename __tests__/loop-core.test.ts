@@ -1,10 +1,15 @@
 import { describe, expect, test, mock } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync as exists } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const { runLoopBody } = await import("../src/loop-core.js");
 const { StateMachine } = await import("../src/state-machine.js");
 const { createInitialState } = await import("../src/state.js");
 
 import type { LoopState } from "../src/types.js";
+import type { OpenCodeClient } from "../src/opencode-client.js";
+import type { WorktreeManagerDeps } from "../src/worktree-manager.js";
 
 function fakeExecutePhaseGroup(_deps: unknown, state: any, _iteration: number) {
   return Promise.resolve({
@@ -33,7 +38,134 @@ function baseConfig(overrides: Partial<LoopState> = {}): any {
   };
 }
 
+function createTempRepo(baseDir: string): string {
+  const repoDir = join(baseDir, "repo");
+  mkdirSync(repoDir, { recursive: true });
+  const r = (cmd: string) => Bun.spawnSync(cmd.split(/\s+/), { cwd: repoDir });
+  r("git init");
+  r("git config user.email test@test.com");
+  r("git config user.name Test");
+  writeFileSync(join(repoDir, "README.md"), "# Test Repo");
+  r("git add -A");
+  r("git commit -m initial");
+  return repoDir;
+}
+
+function stubClient(repoDir: string, worktreeDir: string): OpenCodeClient {
+  return {
+    async createWorkspace(opts) {
+      mkdirSync(worktreeDir, { recursive: true });
+      const r = (cmd: string) => Bun.spawnSync(cmd.split(/\s+/), { cwd: repoDir });
+      r("git worktree add -b " + opts.branch + " " + worktreeDir);
+      return { id: "wrk_test", type: "worktree", name: "test-wt", branch: opts.branch, directory: worktreeDir };
+    },
+    async deleteWorktree(directory) {
+      const r = (cmd: string) => Bun.spawnSync(cmd.split(/\s+/), { cwd: repoDir });
+      return r("git worktree remove --force " + directory).exitCode === 0;
+    },
+    async listWorktrees() {
+      return [];
+    },
+  } as OpenCodeClient;
+}
+
+function makeWtDeps(client: OpenCodeClient): WorktreeManagerDeps {
+  return { client };
+}
+
 describe("runLoopBody (shared loop core)", () => {
+  test("with a targetSpec + worktreeManager: prepares the target, threads it into ExecutionDeps, finalizes on allPassed", async () => {
+    const f = { baseDir: mkdtempSync(join(tmpdir(), "lc-wt-")) };
+    try {
+      const repoDir = createTempRepo(f.baseDir);
+      const worktreeDir = join(f.baseDir, "wt");
+      const client = stubClient(repoDir, worktreeDir);
+      let sawTarget = false;
+
+      const fake = async (deps: any, state: LoopState, _iteration: number) => {
+        sawTarget = deps.target !== undefined;
+        return {
+          allPassed: true,
+          state: { ...state, phaseResults: { demo: { status: "pass" } } },
+        };
+      };
+
+      const sm = new StateMachine();
+      const result = await runLoopBody({
+        sm,
+        state: makeState(),
+        config: baseConfig(),
+        plugins: [],
+        iteration: 1,
+        writeState: async () => {},
+        decideEvent: async () => "LOOP",
+        executePhaseGroup: fake,
+        targetSpec: { targetPath: repoDir, isolated: true, branch: "agent/lc-test" },
+        worktreeManager: makeWtDeps(client),
+      });
+
+      expect(sawTarget).toBe(true);
+      expect(exists(worktreeDir)).toBe(false); // finalize APPROVE discarded the worktree
+      expect(result.event).toBe("LOOP");
+    } finally {
+      rmSync(f.baseDir, { recursive: true, force: true });
+    }
+  });
+
+  test("with a targetSpec + throwing executePhaseGroup: discards the target (leak guard)", async () => {
+    const f = { baseDir: mkdtempSync(join(tmpdir(), "lc-wt-")) };
+    try {
+      const repoDir = createTempRepo(f.baseDir);
+      const worktreeDir = join(f.baseDir, "wt");
+      const client = stubClient(repoDir, worktreeDir);
+
+      const fake = async () => { throw new Error("boom"); };
+
+      const sm = new StateMachine();
+      await expect(
+        runLoopBody({
+          sm,
+          state: makeState(),
+          config: baseConfig(),
+          plugins: [],
+          iteration: 1,
+          writeState: async () => {},
+          decideEvent: async () => "LOOP",
+          executePhaseGroup: fake,
+          targetSpec: { targetPath: repoDir, isolated: true, branch: "agent/lc-leak" },
+          worktreeManager: makeWtDeps(client),
+        }),
+      ).rejects.toThrow("boom");
+      expect(exists(worktreeDir)).toBe(false); // discarded on throw
+    } finally {
+      rmSync(f.baseDir, { recursive: true, force: true });
+    }
+  });
+
+  test("without a targetSpec: behaves exactly as before (no target threading)", async () => {
+    const sm = new StateMachine();
+    let sawTarget = false;
+    const fake = async (deps: any, state: LoopState, _iteration: number) => {
+      sawTarget = deps.target !== undefined;
+      return {
+        allPassed: true,
+        state: { ...state, phaseResults: { demo: { status: "pass" } } },
+      };
+    };
+    const result = await runLoopBody({
+      sm,
+      state: makeState(),
+      config: baseConfig(),
+      plugins: [],
+      iteration: 1,
+      writeState: async () => {},
+      decideEvent: async () => "LOOP",
+      executePhaseGroup: fake,
+    });
+    expect(sawTarget).toBe(false);
+    expect(result.event).toBe("LOOP");
+  });
+
   test("one iteration drives RUN → VERIFY → LOOP and clears phaseResults", async () => {
     const sm = new StateMachine();
     const writes: LoopState[] = [];

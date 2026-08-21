@@ -13,6 +13,8 @@
  */
 
 import type { PlanYamlDoc, PlanYamlTask } from './types.js';
+import type { PermissionRule } from './opencode-client.js';
+import type { TranscriptEntry } from './transcript.js';
 
 // Path tokens that must never appear in any task command, healCommand, or
 // agent prompt (AGENTS.md). Substring match on the field only (YAML comments
@@ -34,10 +36,36 @@ const DENYLISTED_PATH_TOKENS = [
   'aws_access_key',
 ];
 
+/** Dangerous shell commands denied at runtime for the agent (git push, destructive ops). */
+const DANGEROUS_BASH_PATTERNS = [
+  'git push*',
+  'rm -rf*',
+  'rm -fr*',
+  'shred*',
+  'mkfs*',
+  'dd if=*',
+  'dd of=*',
+];
+
+/**
+ * Secret-file tokens matched as FILE-NAME SUFFIXES, not arbitrary substrings:
+ * `.key` must be followed by a path/name separator (end, `/`, `\`, whitespace,
+ * quote, bracket, comma, semicolon). A file body legitimately containing
+ * `# .keyboard-hints` (calendar-app DESIGN.md) must NOT trip `.key` — the dot
+ * is the filename separator, so `.keyboard` is not a key file. `tls.key`
+ * IS one. Directory tokens below (`.env`, `auth/`, …) stay substring-matched.
+ */
+const SECRET_FILE_SUFFIX_TOKENS = ['.pem', '.key'];
+
 function findDenylistedToken(value: string): string | null {
   const lower = value.toLowerCase();
   for (const token of DENYLISTED_PATH_TOKENS) {
-    if (lower.includes(token)) {
+    if (SECRET_FILE_SUFFIX_TOKENS.includes(token)) {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`${escaped}(?:$|[\\s/\\\\"'\\[\\]\\{\\},;])`).test(lower)) {
+        return token;
+      }
+    } else if (lower.includes(token)) {
       return token;
     }
   }
@@ -136,4 +164,117 @@ export function checkPlanAgainstConstitution(
   }
 
   return violations;
+}
+
+// ── T5 #40: runtime permission ruleset (D6.3) ────────────────────────────────
+
+/**
+ * Glob used for edit/glob permission rules: matches any path whose last
+ * segment contains the token (`.env*` covers `.env` and `.env.local`; the
+ * leading dot keeps "monkey"/"keyboard" out of `.pem`/`.key`).
+ */
+function pathGlobForToken(token: string): string {
+  const core = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `**/*${core}*`;
+}
+
+/**
+ * Build the opencode session PermissionRuleset from the denylisted path
+ * tokens + dangerous shell commands. Wire shape (verified against the live
+ * server OpenAPI /doc, 2026-08-19): `{ permission, pattern, action }` with
+ * `action: 'deny'`; last matching rule wins, so built-in denies come first
+ * and any `overrides` (config `opencodeServer.permissionOverrides`) are
+ * appended after — an override can re-allow something the default denies.
+ */
+export function buildPermissionRuleset(overrides?: PermissionRule[]): PermissionRule[] {
+  const rules: PermissionRule[] = [];
+  for (const token of DENYLISTED_PATH_TOKENS) {
+    const glob = pathGlobForToken(token);
+    rules.push({ permission: 'edit', pattern: glob, action: 'deny' });
+    rules.push({ permission: 'bash', pattern: glob, action: 'deny' });
+    rules.push({ permission: 'glob', pattern: glob, action: 'deny' });
+  }
+  for (const pattern of DANGEROUS_BASH_PATTERNS) {
+    rules.push({ permission: 'bash', pattern, action: 'deny' });
+  }
+  if (overrides) rules.push(...overrides);
+  return rules;
+}
+
+// ── T5 #40: post-hoc transcript audit (D6.4) ─────────────────────────────────
+
+/** Violation emitted by the post-hoc transcript/heal audit (D6.4/D6.5). */
+export interface AuditViolation {
+  rule: 'audit-denylisted-path';
+  detail: string;
+}
+
+function stringifyAuditValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function auditValue(value: unknown, source: string, violations: AuditViolation[]): void {
+  const text = stringifyAuditValue(value);
+  if (!text) return;
+  const token = findDenylistedToken(text);
+  if (token !== null) {
+    violations.push({
+      rule: 'audit-denylisted-path',
+      detail: `${source} references denylisted path token "${token}".`,
+    });
+  }
+}
+
+/**
+ * Scan the collected transcript (ToolParts + PatchParts) for denylisted
+ * tokens — a task that touched a denylisted path is REJECTED with an
+ * incident report, even when the agent otherwise finished cleanly.
+ */
+export function auditTranscriptEntries(entries: TranscriptEntry[]): AuditViolation[] {
+  const violations: AuditViolation[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'tool') {
+      const source = `Tool "${entry.tool}" (${entry.callID})`;
+      auditValue(entry.input, `${source} input`, violations);
+      auditValue(entry.result, `${source} result`, violations);
+      auditValue(entry.error, `${source} error`, violations);
+    } else if (entry.kind === 'part' && entry.part.type === 'patch') {
+      for (const file of entry.part.files ?? []) {
+        auditValue(file, `Patch "${entry.part.hash ?? ''}" touches file "${file}"`, violations);
+      }
+    }
+  }
+  return violations;
+}
+
+// ── T5 #40: shared heal audit (D6.5) ─────────────────────────────────────────
+
+/**
+ * Same denylist scan applied to healCommand runs: the heal has the
+ * pre-execution Guard but no post-execution audit — this closes that gap
+ * with the same shared matcher used for agent transcripts.
+ */
+export function auditHealOutput(stdout: string, stderr: string): AuditViolation[] {
+  const violations: AuditViolation[] = [];
+  auditValue(stdout, 'heal stdout', violations);
+  auditValue(stderr, 'heal stderr', violations);
+  return violations;
+}
+
+/** Human-readable incident report for a REJECTED task (D6.4). */
+export function formatAuditIncidentReport(
+  taskName: string,
+  violations: AuditViolation[],
+): string {
+  const lines = violations.map((v, i) => `${i + 1}. ${v.detail}`);
+  return [
+    `Constitution audit REJECTED task "${taskName}" — ${violations.length} denylisted path touch(es):`,
+    ...lines,
+  ].join('\n');
 }

@@ -118,6 +118,74 @@ describe("validatePlanSchema", () => {
     expect(validatePlanSchema(doc)).toEqual([]);
   });
 
+  test("rejects an l2.checklist value other than 'done' (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: { checklist: "pending" as unknown as "done" } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-l2-checklist");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("done");
+  });
+
+  test("rejects a non-object l2 field (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      // @ts-expect-error intentionally invalid l2 shape
+      { l2: "done" },
+    );
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "invalid-l2-checklist")).toBe(true);
+  });
+
+  test("rejects an empty l2 object (checklist missing, D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: {} },
+    );
+    const errs = validatePlanSchema(doc);
+    expect(errs.some((e) => e.rule === "invalid-l2-checklist")).toBe(true);
+  });
+
+  test("accepts l2.checklist: done (D5 L2 gate)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { l2: { checklist: "done" } },
+    );
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("accepts a plan-level target declaration (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { target: { path: "D:\\apps\\calendar-app", isolated: true } },
+    );
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("rejects a target without a path (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      // @ts-expect-error intentionally missing target.path
+      { target: { isolated: true } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-target");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("path");
+  });
+
+  test("rejects a non-boolean target.isolated (T8)", () => {
+    const doc = plan(
+      [{ id: "read-state", command: "type STATE.md" }],
+      { target: { path: "D:\\apps\\calendar-app", isolated: "yes" as unknown as boolean } },
+    );
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-target");
+    expect(err).toBeDefined();
+  });
+
   test("collects multiple distinct errors at once", () => {
     const doc = plan([
       { id: "dup", command: "echo a" },
@@ -193,6 +261,25 @@ describe("agent task rules (v10, ADR-0023)", () => {
     const err = errs.find((e) => e.rule === "unknown-workspace-type");
     expect(err).toBeDefined();
     expect(err!.detail).toContain("local | docker");
+  });
+
+  test("accepts worktree: true on agent and command tasks (T6 isolation)", () => {
+    const doc = plan([
+      { id: "read-state", command: "type STATE.md" },
+      { id: "analyze", type: "agent", prompt: "x", worktree: true },
+      { id: "verify", command: "bun test", worktree: true },
+    ]);
+    expect(validatePlanSchema(doc)).toEqual([]);
+  });
+
+  test("rejects a non-boolean worktree field (T6 isolation)", () => {
+    const doc = plan([
+      { id: "analyze", type: "agent", prompt: "x", worktree: "yes" as unknown as boolean },
+    ]);
+    const errs = validatePlanSchema(doc);
+    const err = errs.find((e) => e.rule === "invalid-worktree-flag");
+    expect(err).toBeDefined();
+    expect(err!.detail).toContain("worktree");
   });
 
   test("rejects an unknown task type", () => {

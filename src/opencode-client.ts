@@ -115,6 +115,13 @@ export interface CreateSessionOptions {
    * PermissionRuleset array); `permissionMode` is the client-side name for it.
    */
   permissionMode?: PermissionRule[];
+  /**
+   * Run the session inside a workspace (worktree isolation, T6). The server's
+   * wire key is `workspaceID` (pattern `^wrk`); sessions without one operate in
+   * the server's project directory. There is NO directory field on the wire —
+   * the workspace is the only way to point a session at a different cwd.
+   */
+  workspaceID?: string;
 }
 
 export interface OpenCodeClient {
@@ -138,6 +145,22 @@ export interface OpenCodeClient {
   listMessages(sessionId: string): Promise<OpenCodeMessage[]>;
   /** Fetch a single part by message + part id (granular refetch). */
   getPart(sessionId: string, messageId: string, partId: string): Promise<OpenCodePart>;
+  /**
+   * Create a workspace (worktree isolation, T6). The server creates the git
+   * worktree in its own store and returns its directory; the session created
+   * with this workspace id operates in that directory.
+   */
+  createWorkspace(opts: { type: 'worktree'; branch: string }): Promise<{
+    id: string;
+    type: string;
+    name: string;
+    branch: string | null;
+    directory: string;
+  }>;
+  /** Remove a worktree by directory (DELETE /experimental/worktree { directory }). */
+  deleteWorktree(directory: string): Promise<boolean>;
+  /** List registered worktree paths (GET /experimental/worktree). */
+  listWorktrees(): Promise<string[]>;
 }
 
 /** Typed error for non-2xx responses — carries the server's status and message. */
@@ -226,6 +249,7 @@ export function createOpenCodeClient(
       if (opts.agent !== undefined) body.agent = opts.agent;
       if (opts.model !== undefined) body.model = opts.model;
       if (opts.permissionMode !== undefined) body.permission = opts.permissionMode;
+      if (opts.workspaceID !== undefined) body.workspaceID = opts.workspaceID;
       return request<OpenCodeSession>('POST', sessionUrl(), body);
     },
     async listSessions() {
@@ -306,6 +330,42 @@ export function createOpenCodeClient(
       return request<OpenCodePart>(
         'GET',
         `${sessionUrl(sessionId)}/message/${encodeURIComponent(messageId)}/part/${encodeURIComponent(partId)}`,
+      );
+    },
+    async createWorkspace(opts) {
+      const body: Record<string, unknown> = { type: opts.type };
+      if (opts.branch !== undefined) body.branch = opts.branch;
+      return request(
+        'POST',
+        `${origin}/experimental/workspace`,
+        body,
+      );
+    },
+    async deleteWorktree(directory) {
+      let res: Response;
+      try {
+        res = await fetch(`${origin}/experimental/worktree`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ directory }),
+          signal,
+        });
+      } catch (err) {
+        throw new Error(
+          `opencode request failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new OpenCodeApiError('DELETE', `${origin}/experimental/worktree`, res.status, text);
+      }
+      const text = await res.text();
+      return text ? (JSON.parse(text) as boolean) : true;
+    },
+    async listWorktrees() {
+      return request<string[]>(
+        'GET',
+        `${origin}/experimental/worktree`,
       );
     },
   };

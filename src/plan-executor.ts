@@ -6,8 +6,9 @@
 import type { PhaseDef, PlanYamlDoc, PlanYamlTask, PhaseResult, LoopResult, LoopState, CompositeDef } from './types.js';
 import { loadCheckpoint } from './checkpoint.js';
 import { parseYaml, dumpYaml } from './yaml.js';
-import { checkPlanAgainstConstitution } from './constitution.js';
+import { checkPlanAgainstConstitution, type ConstitutionViolation } from './constitution.js';
 import { validatePlanSchema } from './plan-schema.js';
+import type { TargetSpec } from './worktree-manager.js';
 
 let activePlanPath = '';
 let activePlanDoc: PlanYamlDoc | null = null;
@@ -99,6 +100,17 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
     throw new Error(`Constitution violation in ${planPath}:\n${lines}`);
   }
 
+  // L2 readiness gate (v11 D5) — refuses to spawn agent tasks until the
+  // human declares `l2.checklist: done` in the plan YAML. Command-only
+  // (L1) plans never spawn agent tasks, so they pass without the flag.
+  const l2Violations = checkPlanL2Gate(doc);
+  if (l2Violations.length > 0) {
+    const lines = l2Violations
+      .map((v) => `  - [${v.rule}] ${v.detail}`)
+      .join('\n');
+    throw new Error(`L2 gate violation in ${planPath}:\n${lines}`);
+  }
+
   activePlanDoc = doc;
 
   let tasks = doc.tasks;
@@ -121,6 +133,35 @@ export async function beforeLoop(planPath: string, resume?: boolean): Promise<Ph
   return phases;
 }
 
+/**
+ * Plan-level L2 gate (v11 D5): a plan that would spawn a `type: agent`
+ * task — directly or through a composite `use` — must declare the
+ * human-written `l2.checklist: done` flag first. Command-only (L1) plans
+ * contain no agent tasks, so they pass without the flag.
+ */
+export function checkPlanL2Gate(doc: PlanYamlDoc): ConstitutionViolation[] {
+  if (doc.l2?.checklist === 'done') return [];
+
+  const agentTaskIds = doc.tasks
+    .filter((t) => taskSpawnsAgent(t, doc))
+    .map((t) => t.id);
+  if (agentTaskIds.length === 0) return [];
+
+  return [
+    {
+      rule: 'l2-checklist',
+      detail: `Plan "${doc.planName}" spawns agent task(s) [${agentTaskIds.join(', ')}] but does not declare l2.checklist: done. Complete docs/l2-readiness-checklist.md and declare the flag in the plan YAML (human-written) before any L2 agent run.`,
+    },
+  ];
+}
+
+function taskSpawnsAgent(task: PlanYamlTask, doc: PlanYamlDoc): boolean {
+  if (task.type === 'agent') return true;
+  if (!task.use) return false;
+  const composite = doc.composites?.find((c) => c.id === task.use);
+  return composite?.phases?.some((p) => p.type === 'agent') ?? false;
+}
+
 function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
   return tasks.map((task) => ({
     name: task.id,
@@ -130,6 +171,7 @@ function mapTasksToPhases(tasks: PlanYamlTask[]): PhaseDef[] {
     agent: task.agent,
     model: task.model,
     workspace: task.workspace,
+    worktree: task.worktree,
     timeoutMs: task.timeoutMs ?? 30000,
     expectedExitCode: 0,
     healCommand: task.healCommand,
@@ -213,4 +255,19 @@ export function dumpPlanYaml(doc: PlanYamlDoc): string {
 
 export function getPlanDoc(): PlanYamlDoc | null {
   return activePlanDoc;
+}
+
+/**
+ * Build the loop's TargetSpec from a plan's `target` declaration (T8).
+ * A plan without `target` yields undefined — the run stays non-isolated.
+ * Isolation defaults to true when the plan declares a target: the agent
+ * must not touch the working tree (git → worktree, non-git → .bak backup).
+ */
+export function buildTargetSpecFromPlan(doc: PlanYamlDoc): TargetSpec | undefined {
+  if (!doc.target) return undefined;
+  return {
+    targetPath: doc.target.path,
+    branch: doc.target.branch,
+    isolated: doc.target.isolated ?? true,
+  };
 }

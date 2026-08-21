@@ -358,4 +358,114 @@ describe("executePhaseGroup", () => {
     expect(result.state.phaseResults["first"]!.status).toBe("pass");
     expect(result.state.phaseResults["second"]!.status).toBe("pass");
   });
+
+  test("heal command touching a denylisted path is REJECTED, not HEALED (T5 D6.5)", async () => {
+    const phases: PhaseDef[] = [
+      {
+        name: "build",
+        command: "exit 1",
+        expectedExitCode: 0,
+        timeoutMs: 5000,
+        healCommand: "echo touched .env",
+        maxRetries: 2,
+      },
+    ];
+    const deps = makeDeps({ config: makeConfig(phases) });
+    const state = makeState();
+
+    const result = await executePhaseGroup(deps, state, 1);
+
+    expect(result.allPassed).toBe(false);
+    const pr = result.state.phaseResults["build"]!;
+    expect(pr.status).toBe("fail");
+    expect(pr.stderr).toContain("Constitution audit REJECTED");
+    expect(pr.stderr).toContain(".env");
+  });
+
+  test("clean heal output still heals the phase (T5 D6.5 regression guard)", async () => {
+    const phases: PhaseDef[] = [
+      {
+        name: "build",
+        command: "exit 1",
+        expectedExitCode: 0,
+        timeoutMs: 5000,
+        healCommand: "echo harmless fix",
+        maxRetries: 2,
+      },
+    ];
+    const deps = makeDeps({ config: makeConfig(phases) });
+    const state = makeState();
+
+    const result = await executePhaseGroup(deps, state, 1);
+
+    // healCommand runs, then the phase command re-runs — the phase still
+    // fails (exit 1), but the heal itself is NOT rejected by the audit.
+    const pr = result.state.phaseResults["build"]!;
+    expect(pr.status).toBe("fail");
+    expect(pr.stderr).not.toContain("Constitution audit REJECTED");
+  });
+});
+
+// ── T6: worktree target wiring ────────────────────────────────────────────────
+
+describe("executePhaseGroup — T6 worktree target", () => {
+  test("agent phase receives workspaceID + worktreeDir from deps.target (git handle)", async () => {
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "DONE" }],
+      closeEvents: true,
+    });
+    try {
+      const phases: PhaseDef[] = [
+        makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
+      ];
+      const deps = makeDeps({
+        config: {
+          ...makeConfig(phases),
+          opencodeServer: { url: stub.url, idleTimeoutMs: 50 },
+        },
+        target: {
+          mode: "git",
+          workspaceID: "wrk_abc",
+          directory: "C:/tmp/wt",
+          branch: "agent/x",
+          base: "HEAD",
+          repoDir: "C:/tmp/repo",
+        },
+      });
+      const result = await executePhaseGroup(deps, makeState(), 1);
+
+      expect(result.allPassed).toBe(true);
+      const create = stub.calls.find((c) => c.method === "POST" && c.path === "/session");
+      expect(create?.body).toMatchObject({ workspaceID: "wrk_abc" });
+      const prompt = stub.lastPrompt();
+      expect(prompt).toContain("Working directory: C:/tmp/wt.");
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("verify phase with worktree: true runs its command inside the target directory", async () => {
+    const phases: PhaseDef[] = [
+      makePhase({ name: "verify", command: "cd", worktree: true }),
+    ];
+    const target = {
+      mode: "git" as const,
+      workspaceID: "wrk_abc",
+      directory: process.cwd(),
+      branch: "agent/x",
+      base: "HEAD",
+      repoDir: process.cwd(),
+    };
+    const deps = makeDeps({
+      config: makeConfig(phases),
+      target,
+    });
+    const result = await executePhaseGroup(deps, makeState(), 1);
+
+    expect(result.allPassed).toBe(true);
+    const pr = result.state.phaseResults["verify"]!;
+    expect(pr.status).toBe("pass");
+    // The command ran with cwd = target.directory (the worktree), not the loop cwd.
+    expect(pr.stdout).toContain(process.cwd());
+  });
 });

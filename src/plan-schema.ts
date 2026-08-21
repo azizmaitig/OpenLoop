@@ -78,6 +78,48 @@ export function validatePlanSchema(doc: PlanYamlDoc): PlanSchemaError[] {
     });
   }
 
+  // Rule: l2 field, when declared, must be `{ checklist: done }` (v11 D5).
+  // The plan-level L2 gate — missing flag on a plan that spawns agent
+  // tasks — is enforced by the executor (plan-executor beforeLoop), so a
+  // command-only plan without `l2` stays valid here.
+  if (doc.l2 !== undefined) {
+    if (doc.l2 === null || typeof doc.l2 !== 'object' || Array.isArray(doc.l2)) {
+      errors.push({
+        rule: 'invalid-l2-checklist',
+        detail: `Plan "l2" must be an object with "checklist: done". Received: ${JSON.stringify(doc.l2)}.`,
+      });
+    } else if (doc.l2.checklist !== 'done') {
+      errors.push({
+        rule: 'invalid-l2-checklist',
+        detail: `Plan "l2.checklist" must be exactly "done" (the only accepted value — the L2 readiness checklist in docs/l2-readiness-checklist.md gates L2 agent runs). Received: "${String(doc.l2.checklist)}".`,
+      });
+    }
+  }
+
+  // Rule: target field, when declared, must be well-formed (v11 D8/T8).
+  // The runner builds the TargetSpec from it (git → worktree, non-git → .bak).
+  if (doc.target !== undefined) {
+    if (doc.target === null || typeof doc.target !== 'object' || Array.isArray(doc.target)) {
+      errors.push({
+        rule: 'invalid-target',
+        detail: `Plan "target" must be an object with a "path". Received: ${JSON.stringify(doc.target)}.`,
+      });
+    } else {
+      if (typeof doc.target.path !== 'string' || doc.target.path.trim() === '') {
+        errors.push({
+          rule: 'invalid-target',
+          detail: `Plan "target.path" must be a non-empty string (the absolute path of the repo/project the agent works on). Received: "${String(doc.target.path)}".`,
+        });
+      }
+      if (doc.target.isolated !== undefined && typeof doc.target.isolated !== 'boolean') {
+        errors.push({
+          rule: 'invalid-target',
+          detail: `Plan "target.isolated" must be a boolean. Received: "${String(doc.target.isolated)}".`,
+        });
+      }
+    }
+  }
+
   // Composites: validate their sub-phases too (they share the same field rules).
   if (doc.composites) {
     for (const composite of doc.composites) {
@@ -149,6 +191,14 @@ function validateTask(
     errors.push({
       rule: 'unknown-workspace-type',
       detail: `${where} has workspace.type "${task.workspace.type}" which is not one of local | docker.`,
+    });
+  }
+
+  // Rule: worktree flag must be boolean (T6 isolation).
+  if (task.worktree !== undefined && typeof task.worktree !== 'boolean') {
+    errors.push({
+      rule: 'invalid-worktree-flag',
+      detail: `${where} has worktree "${String(task.worktree)}" which is not a boolean. Declare worktree: true to isolate this task in a git worktree.`,
     });
   }
 

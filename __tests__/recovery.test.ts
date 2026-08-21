@@ -121,6 +121,41 @@ describe("RecoveryStrategy.healAndRetry (defined, unwired)", () => {
     expect(runCount).toBe(2);
     expect(outcome.healed).toBe(true);
   });
+
+  test("REJECTS the heal when its output touches a denylisted path (T5 D6.5)", async () => {
+    const q = fakeTaskQueue();
+    const ctx: RecoveryContext & { runCommand?: (c: string) => Promise<{ exitCode: number; stdout: string; stderr: string; durationMs: number }> } = {
+      taskQueue: q,
+      broadcast: () => {},
+      auditHeal: (stdout, stderr) =>
+        (stdout + "\n" + stderr).includes(".env")
+          ? [{ rule: "audit-denylisted-path", detail: "heal stdout references .env" }]
+          : [],
+    };
+    const phase: PhaseDef = { ...samplePhase };
+    const result: PhaseResult = { ...sampleResult };
+
+    const outcome = await RecoveryStrategy.healAndRetry(
+      { ...ctx, runCommand: async () => ({ exitCode: 0, stdout: "wrote .env", stderr: "", durationMs: 1 }) },
+      phase,
+      result,
+      { healCommand: "echo fix", maxRetries: 1 },
+    );
+
+    expect(outcome.healed).toBe(false);
+    expect(outcome.auditViolations).toBeDefined();
+    expect(outcome.auditViolations!.length).toBeGreaterThan(0);
+    // No re-run of the verify phase after a REJECTED heal — runCommand is
+    // called once (heal) and never again (retry).
+    let healCalls = 0;
+    await RecoveryStrategy.healAndRetry(
+      { ...ctx, runCommand: async () => { healCalls++; return { exitCode: 0, stdout: "wrote .env", stderr: "", durationMs: 1 }; } },
+      phase,
+      { ...sampleResult },
+      { healCommand: "echo fix", maxRetries: 2 },
+    );
+    expect(healCalls).toBe(1);
+  });
 });
 
 // ── Guard.shouldRun ───────────────────────────────────────────────────────────

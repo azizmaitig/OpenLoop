@@ -1,3 +1,5 @@
+import type { PermissionRule } from './opencode-client.js';
+
 export type StateMachineState = 'init' | 'run' | 'verify' | 'done';
 
 export interface ValidatorDef {
@@ -42,6 +44,8 @@ export interface PhaseDef {
   model?: AgentTaskModel;
   /** Workspace for agent phases: local (default) or docker sandbox. */
   workspace?: AgentTaskWorkspace;
+  /** Run this shell phase inside the isolated worktree (T6). Requires ExecutionDeps.target. */
+  worktree?: boolean;
   expectedExitCode: number;
   timeoutMs: number;
   llm?:
@@ -99,6 +103,15 @@ export interface OpenCodeServerConfig {
   idleTimeoutMs?: number;
   /** Tail cap (chars) for the bounded transcript in the PhaseResult (ADR-0015, default 2000). */
   transcriptTailChars?: number;
+  /** Optional PermissionRuleset additions, appended after the built-in denies (last rule wins). */
+  permissionOverrides?: PermissionRule[];
+  /**
+   * First-event budget (ms) on the session event stream. If the stream
+   * delivers nothing within this window, the executor treats it as silent
+   * (opencode 1.18.19 per-session SSE defect) and falls back to message
+   * polling (ADR-0024 D3b). Default 10000.
+   */
+  streamSilentTimeoutMs?: number;
 }
 
 export interface AgentServerConfig {
@@ -182,6 +195,8 @@ export interface PlanYamlTask {
   model?: AgentTaskModel;
   /** Workspace for agent tasks: local (default) or docker sandbox. */
   workspace?: AgentTaskWorkspace;
+  /** Run this task inside the isolated worktree (T6). Requires a plan-level target. */
+  worktree?: boolean;
   timeoutMs?: number;
   llm?: { mcpServer: string; tool: string; prompt: string } | { provider: string; prompt: string };
   healCommand?: string;
@@ -211,6 +226,21 @@ export interface PlanYamlDoc {
   tasks: PlanYamlTask[];
   /** Optional reusable composite phase sequences. */
   composites?: CompositeDef[];
+  /**
+   * L2 readiness gate (v11 D5, AGENTS.md "No auto-fix until L2 checklist
+   * complete"). Human-written plan-level declaration: `l2.checklist: done`
+   * is REQUIRED before any `type: agent` task can spawn. Absent for
+   * command-only (L1) plans — the executor only gates plans that would
+   * spawn an agent task. The source of truth lives in
+   * `docs/l2-readiness-checklist.md` (mechanic checks + human ticks).
+   */
+  l2?: { checklist?: 'done' };
+  /**
+   * Plan-level target (v11 D8/T8): the repo/project the agent tasks work on.
+   * Declared by the plan author so the runner can build the TargetSpec
+   * (git → worktree isolation, non-git → .bak backup before touch).
+   */
+  target?: { path: string; branch?: string; isolated?: boolean };
 }
 
 export interface CheckpointState {

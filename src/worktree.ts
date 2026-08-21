@@ -49,9 +49,13 @@ export async function runInWorktree(
  *
  * Gracefully handles already-removed or non-existent paths.
  * Uses --force if the worktree has uncommitted changes.
+ *
+ * @param worktreePath - absolute path of the worktree to remove
+ * @param repoDir - optional git dir that owns the worktree (the command must
+ *   run from a worktree of the same repo; defaults to process.cwd())
  */
-export async function discardWorktree(worktreePath: string): Promise<void> {
-  const { stderr, exitCode } = await exec(`git worktree remove ${worktreePath}`);
+export async function discardWorktree(worktreePath: string, repoDir?: string): Promise<void> {
+  const { stderr, exitCode } = await exec(`git worktree remove ${worktreePath}`, repoDir);
 
   if (exitCode === 0) return;
 
@@ -68,6 +72,7 @@ export async function discardWorktree(worktreePath: string): Promise<void> {
   if (stderr.includes('is dirty') || stderr.includes('contains modified')) {
     const { exitCode: forceExit, stderr: forceStderr } = await exec(
       `git worktree remove --force ${worktreePath}`,
+      repoDir,
     );
     if (forceExit !== 0) {
       throw new Error(`discardWorktree (force): ${forceStderr}`);

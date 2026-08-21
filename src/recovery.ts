@@ -27,6 +27,7 @@
 
 import type { PhaseDef, PhaseResult, Task } from "./types.js";
 import type { TaskQueue } from "./task-queue.js";
+import type { AuditViolation } from "./constitution.js";
 
 // ── Guard (pre-execution) ─────────────────────────────────────────────────────
 
@@ -83,11 +84,19 @@ export interface RecoveryContext {
     durationMs: number;
   }>;
   getPlanDoc?: () => unknown;
+  /** Post-heal constitution audit (T5): scans heal stdout/stderr for denylisted touches. */
+  auditHeal?: (stdout: string, stderr: string) => AuditViolation[];
 }
 
 export interface HealConfig {
   healCommand: string;
   maxRetries: number;
+}
+
+export interface HealOutcome {
+  healed: boolean;
+  /** Denylisted touches detected in the heal output (T5 D6.5) — REJECT the phase. */
+  auditViolations?: AuditViolation[];
 }
 
 export const RecoveryStrategy = {
@@ -115,10 +124,18 @@ export const RecoveryStrategy = {
     phase: PhaseDef,
     result: PhaseResult,
     heal: HealConfig,
-  ): Promise<{ healed: boolean }> {
+  ): Promise<HealOutcome> {
     if (!ctx.runCommand) return { healed: false };
     for (let attempt = 1; attempt <= heal.maxRetries; attempt++) {
       const healResult = await ctx.runCommand(heal.healCommand, phase.timeoutMs);
+      // T5 D6.5: the heal shares the post-hoc constitution audit. A denylisted
+      // touch in its output REJECTS the phase — no further heal attempts.
+      if (ctx.auditHeal) {
+        const auditViolations = ctx.auditHeal(healResult.stdout, healResult.stderr);
+        if (auditViolations.length > 0) {
+          return { healed: false, auditViolations };
+        }
+      }
       if (healResult.exitCode !== 0) continue;
       const retry = await ctx.runCommand(phase.command ?? '', phase.timeoutMs);
       if (retry.exitCode === 0) {

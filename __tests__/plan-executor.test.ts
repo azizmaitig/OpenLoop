@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop } from "../src/plan-executor.js";
+import { parsePlanYaml, dumpPlanYaml, expandComposites, beforeLoop, buildTargetSpecFromPlan } from "../src/plan-executor.js";
 import type { PlanYamlTask, PlanYamlDoc, CompositeDef } from "../src/types.js";
 
 const FIXTURE_PATH = "__tests__/fixtures/sample.plan.yaml";
@@ -201,8 +201,160 @@ describe("expandComposites", () => {
   });
 });
 
+describe("buildTargetSpecFromPlan (T8)", () => {
+  test("returns undefined when the plan declares no target", () => {
+    const doc: PlanYamlDoc = { planName: "no-target", tasks: [] };
+    expect(buildTargetSpecFromPlan(doc)).toBeUndefined();
+  });
+
+  test("builds a TargetSpec with isolated defaulting to true", () => {
+    const doc: PlanYamlDoc = {
+      planName: "with-target",
+      tasks: [],
+      target: { path: "D:\\apps\\calendar-app" },
+    };
+    const spec = buildTargetSpecFromPlan(doc);
+    expect(spec).toEqual({
+      targetPath: "D:\\apps\\calendar-app",
+      isolated: true,
+    });
+  });
+
+  test("preserves branch and explicit isolated=false", () => {
+    const doc: PlanYamlDoc = {
+      planName: "with-target",
+      tasks: [],
+      target: { path: "D:\\repo", branch: "agent/audit", isolated: false },
+    };
+    expect(buildTargetSpecFromPlan(doc)).toEqual({
+      targetPath: "D:\\repo",
+      branch: "agent/audit",
+      isolated: false,
+    });
+  });
+});
+
+describe("L2 checklist gate in beforeLoop (D5, T7)", () => {
+  const agentPlan = `planName: agent-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    agent: openhands
+    workspace:
+      type: docker
+  - id: verify
+    command: bun test
+`;
+
+  const agentPlanWithL2 = `planName: agent-plan
+l2:
+  checklist: done
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    agent: openhands
+    workspace:
+      type: docker
+  - id: verify
+    command: bun test
+`;
+
+  const commandOnlyPlan = `planName: command-plan
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: verify
+    command: bun test
+`;
+
+  test("rejects an agent plan WITHOUT l2.checklist: done", async () => {
+    await expect(beforeLoop(agentPlan)).rejects.toThrow(/l2\.checklist: done/);
+  });
+
+  test("rejects with an explicit error naming the gate rule", async () => {
+    await expect(beforeLoop(agentPlan)).rejects.toThrow(/l2-checklist/);
+  });
+
+  test("accepts an agent plan WITH l2.checklist: done", async () => {
+    const phases = await beforeLoop(agentPlanWithL2);
+    expect(phases.some((p) => p.name === "analyze")).toBe(true);
+  });
+
+  test("does NOT gate a command-only plan (no agent tasks)", async () => {
+    const phases = await beforeLoop(commandOnlyPlan);
+    expect(phases.map((p) => p.name)).toEqual(["read-state", "verify"]);
+  });
+
+  test("rejects an agent plan with an invalid l2.checklist value (schema gate fires first)", async () => {
+    const bad = `planName: agent-plan
+l2:
+  checklist: pending
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+  - id: verify
+    command: bun test
+`;
+    await expect(beforeLoop(bad)).rejects.toThrow(/invalid-l2-checklist/);
+  });
+
+  test("rejects an agent task smuggled via composite use without the L2 flag (D5 bypass)", async () => {
+    const bad = `planName: composite-agent
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: agent-step
+    use: agent-composite
+    command: echo placeholder
+  - id: verify
+    command: bun test
+composites:
+  - id: agent-composite
+    phases:
+      - id: sub
+        type: agent
+        prompt: analyze the auth module
+`;
+    await expect(beforeLoop(bad)).rejects.toThrow(/l2\.checklist: done/);
+  });
+
+  test("accepts a composite use with an agent sub-phase when the plan declares l2.checklist: done", async () => {
+    const good = `planName: composite-agent
+l2:
+  checklist: done
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: agent-step
+    use: agent-composite
+    command: echo placeholder
+  - id: verify
+    command: bun test
+composites:
+  - id: agent-composite
+    phases:
+      - id: sub
+        type: agent
+        prompt: analyze the auth module
+`;
+    const phases = await beforeLoop(good);
+    expect(phases.map((p) => p.name)).toContain("agent-step:sub");
+  });
+});
+
 describe("agent task schema gate in beforeLoop (v10, ADR-0023)", () => {
   const validAgentPlan = `planName: agent-plan
+l2:
+  checklist: done
 tasks:
   - id: read-state
     command: type STATE.md
@@ -224,6 +376,30 @@ tasks:
     expect(agentPhase.prompt).toBe("analyze the auth module");
     expect(agentPhase.workspace).toEqual({ type: "docker" });
     expect(agentPhase.command).toBeUndefined();
+  });
+
+  test("maps worktree: true from plan YAML to PhaseDef.worktree (T6 isolation)", async () => {
+    const planYaml = `planName: wt-plan
+l2:
+  checklist: done
+tasks:
+  - id: read-state
+    command: type STATE.md
+  - id: analyze
+    type: agent
+    prompt: analyze the auth module
+    worktree: true
+  - id: verify
+    command: bun test
+    worktree: true
+`;
+    const phases = await beforeLoop(planYaml);
+    const agentPhase = phases.find((p) => p.name === "analyze")!;
+    const verifyPhase = phases.find((p) => p.name === "verify")!;
+    expect(agentPhase.worktree).toBe(true);
+    expect(verifyPhase.worktree).toBe(true);
+    const readState = phases.find((p) => p.name === "read-state")!;
+    expect(readState.worktree).toBeUndefined();
   });
 
   test("rejects a plan whose agent task combines type with command", async () => {
