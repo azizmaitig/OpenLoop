@@ -3,6 +3,7 @@ import {
   DEFAULT_CONFIG,
   agentServerFromEnv,
   mergeConfig,
+  opencodeServerFromEnv,
 } from "../src/config.js";
 import type { LoopConfig } from "../src/types.js";
 
@@ -193,6 +194,48 @@ describe("agentServerFromEnv", () => {
       });
     } finally {
       clearAgentServerEnv();
+    }
+  });
+});
+
+describe("opencodeServer config (v11, ADR-0024)", () => {
+  test("DEFAULT_CONFIG ships opencodeServer with the default url", () => {
+    expect(DEFAULT_CONFIG.opencodeServer).toEqual({
+      url: "http://127.0.0.1:4096",
+    });
+  });
+
+  test("mergeConfig accepts a full opencodeServer override", () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, {
+      opencodeServer: { url: "http://127.0.0.1:4097" },
+    });
+    expect(merged.opencodeServer).toEqual({ url: "http://127.0.0.1:4097" });
+  });
+
+  test("mergeConfig deep-merges partial opencodeServer overrides over defaults", () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, { opencodeServer: {} });
+    expect(merged.opencodeServer).toEqual({ url: "http://127.0.0.1:4096" });
+  });
+
+  test("mergeConfig does not mutate the base opencodeServer", () => {
+    mergeConfig(DEFAULT_CONFIG, { opencodeServer: { url: "http://127.0.0.1:4097" } });
+    expect(DEFAULT_CONFIG.opencodeServer).toEqual({ url: "http://127.0.0.1:4096" });
+  });
+});
+
+describe("opencodeServerFromEnv", () => {
+  test("returns empty overrides when no LOOP_OPENCODE_SERVER_URL is set", () => {
+    delete process.env.LOOP_OPENCODE_SERVER_URL;
+    expect(opencodeServerFromEnv()).toEqual({});
+  });
+
+  test("reads the url from LOOP_OPENCODE_SERVER_URL", () => {
+    delete process.env.LOOP_OPENCODE_SERVER_URL;
+    process.env.LOOP_OPENCODE_SERVER_URL = "http://127.0.0.1:4097";
+    try {
+      expect(opencodeServerFromEnv()).toEqual({ url: "http://127.0.0.1:4097" });
+    } finally {
+      delete process.env.LOOP_OPENCODE_SERVER_URL;
     }
   });
 });

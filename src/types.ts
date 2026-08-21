@@ -88,6 +88,13 @@ export interface LoopConfig {
   memory?: MemoryConfig;
   /** Agent Server sidecar config (v10, ADR-0023). Defaults in DEFAULT_CONFIG. */
   agentServer?: AgentServerConfig;
+  /** opencode server config (v11, ADR-0024). Defaults in DEFAULT_CONFIG. */
+  opencodeServer?: OpenCodeServerConfig;
+}
+
+export interface OpenCodeServerConfig {
+  /** Base URL of the opencode server REST API (default http://127.0.0.1:4096). */
+  url: string;
 }
 
 export interface AgentServerConfig {
