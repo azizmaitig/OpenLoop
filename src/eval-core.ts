@@ -13,6 +13,8 @@ export interface EvalRequest {
   expectedExitCode: number;
   /** Optional custom instruction for the LLM (appended to the standard one). */
   instruction?: string;
+  /** Bounded agent-run transcript — evidence for LLM-graded agent verify (v11 T4). */
+  transcript?: string;
 }
 
 // ── Env-based LLM config ─────────────────────────────────────────────────────
@@ -72,6 +74,7 @@ export function buildEvalPrompt(req: EvalRequest): string {
     stderr: req.stderr,
     exitCode: req.exitCode,
     expectedExitCode: req.expectedExitCode,
+    transcript: req.transcript,
     instruction:
       req.instruction ||
       'Return JSON: {"passed": boolean, "reason": string, "confidence": number (0-1)}',

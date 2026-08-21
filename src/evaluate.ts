@@ -45,6 +45,7 @@ export async function evaluatePhase(
         stderr: result.stderr,
         exitCode: result.exitCode,
         expectedExitCode: phase.expectedExitCode,
+        transcript: result.transcript,
       });
 
       const judgment = await evalWithLlm(config, prompt, systemPrompt);
@@ -60,6 +61,7 @@ export async function evaluatePhase(
       stderr: result.stderr,
       exitCode: result.exitCode,
       expectedExitCode: phase.expectedExitCode,
+      transcript: result.transcript,
     });
     const mcpLlm = phase.llm as { mcpServer: string; tool: string; prompt: string };
     const evalPhase: PhaseDef = {

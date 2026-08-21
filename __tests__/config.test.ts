@@ -199,10 +199,11 @@ describe("agentServerFromEnv", () => {
 });
 
 describe("opencodeServer config (v11, ADR-0024)", () => {
-  test("DEFAULT_CONFIG ships opencodeServer with the default url + idle timeout", () => {
+  test("DEFAULT_CONFIG ships opencodeServer with the default url + idle timeout + transcript tail", () => {
     expect(DEFAULT_CONFIG.opencodeServer).toEqual({
       url: "http://127.0.0.1:4096",
       idleTimeoutMs: 60000,
+      transcriptTailChars: 2000,
     });
   });
 
@@ -213,6 +214,7 @@ describe("opencodeServer config (v11, ADR-0024)", () => {
     expect(merged.opencodeServer).toEqual({
       url: "http://127.0.0.1:4097",
       idleTimeoutMs: 60000,
+      transcriptTailChars: 2000,
     });
   });
 
@@ -221,6 +223,7 @@ describe("opencodeServer config (v11, ADR-0024)", () => {
     expect(merged.opencodeServer).toEqual({
       url: "http://127.0.0.1:4096",
       idleTimeoutMs: 60000,
+      transcriptTailChars: 2000,
     });
   });
 
@@ -229,6 +232,7 @@ describe("opencodeServer config (v11, ADR-0024)", () => {
     expect(DEFAULT_CONFIG.opencodeServer).toEqual({
       url: "http://127.0.0.1:4096",
       idleTimeoutMs: 60000,
+      transcriptTailChars: 2000,
     });
   });
 

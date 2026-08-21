@@ -58,14 +58,44 @@ export interface OpenCodeSession {
  * One event from the session event stream. `data` is the raw
  * SessionDurableEvent JSON — discriminated by `data.type` (e.g.
  * `session.next.text.ended` with `data.text`, `session.next.step.ended`
- * with `data.finish`, `session.next.step.failed` with `data.error`).
+ * with `data.finish`, `session.next.step.failed` with `data.error`,
+ * `session.next.tool.called` with `data.callID`/`data.tool`/`data.input`,
+ * `session.next.tool.success` with `data.result`, `session.next.tool.failed`
+ * with `data.error`, `sync` with `data.syncEvent` carrying a Part).
  */
 export interface OpenCodeEventData {
   type?: string;
   text?: string;
   finish?: string;
-  error?: string;
+  error?: unknown;
+  callID?: string;
+  tool?: string;
+  input?: unknown;
+  result?: unknown;
+  content?: unknown;
+  syncEvent?: { type?: string; data?: { part?: OpenCodePart } };
   [key: string]: unknown;
+}
+
+/** A message part as stored on the server (ToolPart/PatchPart/TextPart...). */
+export interface OpenCodePart {
+  id?: string;
+  sessionID?: string;
+  messageID?: string;
+  type?: string;
+  callID?: string;
+  tool?: string;
+  state?: Record<string, unknown>;
+  hash?: string;
+  files?: string[];
+  text?: string;
+  [key: string]: unknown;
+}
+
+/** One message from GET /session/{id}/message (Message = { info, parts }). */
+export interface OpenCodeMessage {
+  info: Record<string, unknown>;
+  parts: OpenCodePart[];
 }
 
 /** A parsed SSE block from GET /api/session/{id}/event. */
@@ -104,6 +134,10 @@ export interface OpenCodeClient {
   sendPrompt(sessionId: string, text: string, opts?: { signal?: AbortSignal }): Promise<void>;
   /** Open the session event stream (GET /api/session/{id}/event, SSE) as parsed events. */
   streamEvents(sessionId: string, opts?: { signal?: AbortSignal }): AsyncIterable<OpenCodeStreamEvent>;
+  /** Fetch all messages of a session with their parts (post-crash transcript rebuild). */
+  listMessages(sessionId: string): Promise<OpenCodeMessage[]>;
+  /** Fetch a single part by message + part id (granular refetch). */
+  getPart(sessionId: string, messageId: string, partId: string): Promise<OpenCodePart>;
 }
 
 /** Typed error for non-2xx responses — carries the server's status and message. */
@@ -261,6 +295,18 @@ export function createOpenCodeClient(
       } finally {
         reader.releaseLock();
       }
+    },
+    async listMessages(sessionId) {
+      return request<OpenCodeMessage[]>(
+        'GET',
+        `${sessionUrl(sessionId)}/message`,
+      );
+    },
+    async getPart(sessionId, messageId, partId) {
+      return request<OpenCodePart>(
+        'GET',
+        `${sessionUrl(sessionId)}/message/${encodeURIComponent(messageId)}/part/${encodeURIComponent(partId)}`,
+      );
     },
   };
 }

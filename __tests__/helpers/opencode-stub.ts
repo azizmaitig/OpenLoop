@@ -6,12 +6,20 @@
 //   POST /session/{id}/prompt_async → 204 (records the prompt text)
 //   GET  /api/session/{id}/event    → SSE (queued events, hold-open by default)
 //   POST /session/{id}/abort        → true (records calls)
+//   GET  /session/{id}/message      → { info, parts }[] (configured messages)
+//   GET  /session/{id}/message/{mid}/part/{pid} → single part (configured)
 // Zero live opencode — Bun.serve HTTP only (AC: unit tests mock the server).
 
 export interface StubCall {
   method: string;
   path: string;
   body?: unknown;
+}
+
+/** One message as served by GET /session/{id}/message (Message = { info, parts }). */
+export interface StubMessage {
+  info: Record<string, unknown>;
+  parts: Array<Record<string, unknown>>;
 }
 
 export interface StubBehavior {
@@ -21,6 +29,10 @@ export interface StubBehavior {
   events?: Array<Record<string, unknown>>;
   /** Close the event stream after the queued events (default: hold it open). */
   closeEvents?: boolean;
+  /** Messages served by GET /session/{id}/message (crash-recovery refetch). */
+  messages?: StubMessage[];
+  /** Lookup table for GET /session/{id}/message/{mid}/part/{pid}, keyed by `${mid}:${pid}`. */
+  parts?: Map<string, Record<string, unknown>>;
 }
 
 export interface StubServer {
@@ -33,6 +45,8 @@ export interface StubServer {
   lastPrompt(): string | undefined;
   sessionCreateCount(): number;
   abortCount(): number;
+  /** Number of GET /session/{id}/message calls (refetch path). */
+  messageListCount(): number;
 }
 
 export function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
@@ -102,6 +116,17 @@ export function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
         return Response.json(true);
       }
 
+      if (req.method === "GET" && /^\/session\/[^/]+\/message$/.test(path)) {
+        return Response.json(behavior.messages ?? []);
+      }
+
+      if (req.method === "GET" && /^\/session\/[^/]+\/message\/[^/]+\/part\/[^/]+$/.test(path)) {
+        const [, , , messageId, , partId] = path.split("/");
+        const part = behavior.parts?.get(`${messageId}:${partId}`);
+        if (!part) return Response.json({ error: "stub: part not found" }, { status: 404 });
+        return Response.json(part);
+      }
+
       return Response.json({ error: "stub: not found" }, { status: 404 });
     },
   });
@@ -114,5 +139,6 @@ export function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
     lastPrompt: () => lastPromptText,
     sessionCreateCount: () => calls.filter((c) => c.method === "POST" && c.path === "/session").length,
     abortCount: () => calls.filter((c) => c.method === "POST" && c.path.endsWith("/abort")).length,
+    messageListCount: () => calls.filter((c) => c.method === "GET" && c.path.endsWith("/message")).length,
   };
 }

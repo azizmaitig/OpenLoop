@@ -97,6 +97,8 @@ export interface OpenCodeServerConfig {
   url: string;
   /** Idle timeout (ms) after a StepFinishPart before the executor hands off (default 60000). */
   idleTimeoutMs?: number;
+  /** Tail cap (chars) for the bounded transcript in the PhaseResult (ADR-0015, default 2000). */
+  transcriptTailChars?: number;
 }
 
 export interface AgentServerConfig {
@@ -138,6 +140,10 @@ export interface PhaseResult extends ExecutionResult {
   stdoutPath?: string;
   /** Path to the full stderr offload file, set when stderr exceeds the inline tail cap. */
   stderrPath?: string;
+  /** Bounded agent-run transcript (ADR-0015 tail) — evidence for LLM-graded verify (v11 T4). */
+  transcript?: string;
+  /** Path to the full .agent.jsonl transcript offload, set when a run name is available. */
+  transcriptPath?: string;
   judgment?: Judgment;
   pluginResults?: Record<string, any>;
   /** Advisory validation result from the LLM validator gate. Never hard-fails. */

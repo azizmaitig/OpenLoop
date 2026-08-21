@@ -9,6 +9,7 @@ export const DEFAULT_AGENT_SERVER_CONFIG: AgentServerConfig = {
 export const DEFAULT_OPENCODE_SERVER_CONFIG: OpenCodeServerConfig = {
   url: 'http://127.0.0.1:4096',
   idleTimeoutMs: 60000,
+  transcriptTailChars: 2000,
 };
 
 const num = (v: string | undefined): number | undefined => {
@@ -67,6 +68,8 @@ export function opencodeServerFromEnv(): Partial<OpenCodeServerConfig> {
   }
   const idleTimeoutMs = num(process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS);
   if (idleTimeoutMs !== undefined) out.idleTimeoutMs = idleTimeoutMs;
+  const transcriptTailChars = num(process.env.LOOP_OPENCODE_SERVER_TRANSCRIPT_TAIL_CHARS);
+  if (transcriptTailChars !== undefined) out.transcriptTailChars = transcriptTailChars;
   return out;
 }
 
