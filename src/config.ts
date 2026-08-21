@@ -8,6 +8,13 @@ export const DEFAULT_AGENT_SERVER_CONFIG: AgentServerConfig = {
 
 export const DEFAULT_OPENCODE_SERVER_CONFIG: OpenCodeServerConfig = {
   url: 'http://127.0.0.1:4096',
+  idleTimeoutMs: 60000,
+};
+
+const num = (v: string | undefined): number | undefined => {
+  if (v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
 };
 
 /**
@@ -17,11 +24,6 @@ export const DEFAULT_OPENCODE_SERVER_CONFIG: OpenCodeServerConfig = {
  */
 export function agentServerFromEnv(): Partial<AgentServerConfig> {
   const out: Partial<AgentServerConfig> = {};
-  const num = (v: string | undefined): number | undefined => {
-    if (v === undefined || v === '') return undefined;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  };
   if (process.env.LOOP_AGENT_SERVER_MANAGE !== undefined) {
     const v = process.env.LOOP_AGENT_SERVER_MANAGE.toLowerCase();
     out.manage = v !== 'false' && v !== '0' && v !== '';
@@ -63,6 +65,8 @@ export function opencodeServerFromEnv(): Partial<OpenCodeServerConfig> {
   if (process.env.LOOP_OPENCODE_SERVER_URL !== undefined) {
     out.url = process.env.LOOP_OPENCODE_SERVER_URL;
   }
+  const idleTimeoutMs = num(process.env.LOOP_OPENCODE_SERVER_IDLE_TIMEOUT_MS);
+  if (idleTimeoutMs !== undefined) out.idleTimeoutMs = idleTimeoutMs;
   return out;
 }
 

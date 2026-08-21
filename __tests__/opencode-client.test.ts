@@ -27,6 +27,10 @@ interface StubBehavior {
   hangHealth?: boolean;
   /** Respond 500 to POST /session. */
   failCreate?: boolean;
+  /** SSE events to emit on GET /api/session/{id}/event. */
+  events?: Array<Record<string, unknown>>;
+  /** Close the event stream after the queued events (default: hold it open). */
+  closeEvents?: boolean;
 }
 
 interface StubServer {
@@ -104,6 +108,26 @@ function startOpenCodeStub(behavior: StubBehavior = {}): StubServer {
         const id = path.split("/")[2];
         if (!sessions.has(id)) return Response.json({ error: "stub: session not found" }, { status: 404 });
         return Response.json(true);
+      }
+
+      if (req.method === "POST" && /^\/session\/[^/]+\/prompt_async$/.test(path)) {
+        return new Response(null, { status: 204 });
+      }
+
+      if (req.method === "GET" && /^\/api\/session\/[^/]+\/event$/.test(path)) {
+        const events = behavior.events ?? [];
+        const payload = events
+          .map((e) => `event: message\ndata: ${JSON.stringify(e)}\n\n`)
+          .join("");
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (payload) controller.enqueue(new TextEncoder().encode(payload));
+            if (behavior.closeEvents) controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: { "Content-Type": "text/event-stream" },
+        });
       }
 
       return Response.json({ error: "stub: not found" }, { status: 404 });
@@ -288,7 +312,59 @@ describe("createOpenCodeClient", () => {
       const client = createOpenCodeClient(stub.url);
       const session = await client.createSession({ agent: "build" });
       expect(session.id).toMatch(/^ses_/);
-      expect(await client.listSessions()).toHaveLength(1);
+expect(await client.listSessions()).toHaveLength(1);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("sendPrompt POSTs { parts: [{ type: 'text', text }] } to prompt_async", async () => {
+    const stub = startOpenCodeStub();
+    try {
+      const client = createOpenCodeClient(stub.url);
+      const created = await client.createSession();
+      await client.sendPrompt(created.id, "do the thing");
+      const call = stub.calls.find(
+        (c) => c.method === "POST" && c.path === `/session/${created.id}/prompt_async`,
+      );
+      expect(call?.body).toEqual({ parts: [{ type: "text", text: "do the thing" }] });
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("streamEvents yields parsed SSE events in order", async () => {
+    const stub = startOpenCodeStub({
+      events: [
+        { type: "session.next.text.ended", text: "working..." },
+        { type: "session.next.step.ended", finish: "done" },
+      ],
+      closeEvents: true,
+    });
+    try {
+      const client = createOpenCodeClient(stub.url);
+      const created = await client.createSession();
+      const seen: Array<{ event?: string; type?: string; text?: string }> = [];
+      for await (const ev of client.streamEvents(created.id)) {
+        seen.push({ event: ev.event, type: ev.data?.type, text: ev.data?.text });
+      }
+      expect(seen).toEqual([
+        { event: "message", type: "session.next.text.ended", text: "working..." },
+        { event: "message", type: "session.next.step.ended", text: undefined },
+      ]);
+    } finally {
+      stub.close();
+    }
+  });
+
+  test("streamEvents ends when the server closes the stream", async () => {
+    const stub = startOpenCodeStub({ closeEvents: true });
+    try {
+      const client = createOpenCodeClient(stub.url);
+      const created = await client.createSession();
+      let count = 0;
+      for await (const _ev of client.streamEvents(created.id)) count++;
+      expect(count).toBe(0);
     } finally {
       stub.close();
     }

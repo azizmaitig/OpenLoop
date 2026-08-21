@@ -95,6 +95,8 @@ export interface LoopConfig {
 export interface OpenCodeServerConfig {
   /** Base URL of the opencode server REST API (default http://127.0.0.1:4096). */
   url: string;
+  /** Idle timeout (ms) after a StepFinishPart before the executor hands off (default 60000). */
+  idleTimeoutMs?: number;
 }
 
 export interface AgentServerConfig {

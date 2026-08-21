@@ -1,10 +1,7 @@
 ﻿import { describe, expect, test, spyOn } from "bun:test";
 import type { ExecutionDeps } from "../src/execute-phases.js";
 import type { LoopConfig, LoopState, PhaseDef, PhaseResult } from "../src/types.js";
-import { createAgentServerManager } from "../src/agent-server.js";
-import { startAgentStub } from "./helpers/agent-stub.js";
-import type { StubServer } from "./helpers/agent-stub.js";
-import { makeFakeDockerRunner } from "./helpers/docker-stub.js";
+import { startOpenCodeStub } from "./helpers/opencode-stub.js";
 
 import { executePhaseGroup } from "../src/execute-phases.js";
 
@@ -91,15 +88,9 @@ describe("executePhaseGroup", () => {
       ...makeConfig([
         makePhase({ name: "agent-task", type: "agent", prompt: "do the thing", command: undefined }),
       ]),
-      agentServer: { manage: false, url: "http://127.0.0.1:59999", port: 59999 },
+      opencodeServer: { url: "http://127.0.0.1:59999" },
     };
-    const deps = makeDeps({
-      config: deadConfig,
-      agentServerManager: createAgentServerManager(deadConfig, undefined, {
-        readyTimeoutMs: 50,
-        pollIntervalMs: 10,
-      }),
-    });
+    const deps = makeDeps({ config: deadConfig });
     const state = makeState();
 
     const result = await executePhaseGroup(deps, state, 1);
@@ -107,18 +98,21 @@ describe("executePhaseGroup", () => {
     expect(result.allPassed).toBe(false);
     const pr = result.state.phaseResults["agent-task"]!;
     expect(pr.status).toBe("error");
-    expect(pr.stderr).toContain("Agent Server");
+    expect(pr.stderr).toContain("not healthy");
   });
 
   test("agent phase executes through the loop against a stub — pass (AC1/AC2)", async () => {
-    const stub = startAgentStub({ terminalStatus: "finished" });
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "analyze the auth module\nDONE" }],
+      closeEvents: true,
+    });
     try {
       const deps = makeDeps({
         config: {
           ...makeConfig([
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
           ]),
-          agentServer: { manage: false, url: stub.url, port: 8000 },
+          opencodeServer: { url: stub.url },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
@@ -134,14 +128,17 @@ describe("executePhaseGroup", () => {
   });
 
   test("failing agent conversation fails the phase group (AC2)", async () => {
-    const stub = startAgentStub({ terminalStatus: "failed" });
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.step.failed", error: "stub: agent failed" }],
+      closeEvents: true,
+    });
     try {
       const deps = makeDeps({
         config: {
           ...makeConfig([
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
           ]),
-          agentServer: { manage: false, url: stub.url, port: 8000 },
+          opencodeServer: { url: stub.url },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
@@ -154,7 +151,10 @@ describe("executePhaseGroup", () => {
   });
 
   test("verify phase gates an agent task result like any command task (AC4)", async () => {
-    const stub = startAgentStub({ terminalStatus: "finished" });
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "DONE" }],
+      closeEvents: true,
+    });
     try {
       const deps = makeDeps({
         config: {
@@ -162,7 +162,7 @@ describe("executePhaseGroup", () => {
             makePhase({ name: "analyze", type: "agent", prompt: "analyze the auth module", command: undefined }),
             makePhase({ name: "verify", command: "echo verified", dependsOn: ["analyze"] }),
           ]),
-          agentServer: { manage: false, url: stub.url, port: 8000 },
+          opencodeServer: { url: stub.url },
         },
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
@@ -175,30 +175,11 @@ describe("executePhaseGroup", () => {
     }
   });
 
-  test("local and docker agent tasks coexist in one plan — per-task containers (AC3)", async () => {
-    const localStub = startAgentStub({ terminalStatus: "finished" });
-    const { runner, spawned } = makeFakeDockerRunner();
-    const localManager = createAgentServerManager(
-      {
-        ...makeConfig([]),
-        agentServer: { manage: true, url: localStub.url, port: 0 },
-      },
-      {
-        async spawn() {
-          return {
-            pid: 1,
-            baseUrl: localStub.url,
-            kill: () => {
-              try {
-                localStub.close();
-              } catch {}
-            },
-            stderr: Promise.resolve(""),
-          };
-        },
-      },
-      { readyTimeoutMs: 50, pollIntervalMs: 10 },
-    );
+  test("multiple agent tasks in one plan — each gets its own opencode session", async () => {
+    const stub = startOpenCodeStub({
+      events: [{ type: "session.next.text.ended", text: "DONE" }],
+      closeEvents: true,
+    });
     try {
       const deps = makeDeps({
         config: {
@@ -214,20 +195,17 @@ describe("executePhaseGroup", () => {
             }),
             makePhase({ name: "verify", command: "echo verified" }),
           ]),
+          opencodeServer: { url: stub.url },
         },
-        agentServerManager: localManager,
-        dockerRunner: runner,
       });
       const result = await executePhaseGroup(deps, makeState(), 1);
 
       expect(result.allPassed).toBe(true);
       expect(result.state.phaseResults["analyze-local"]!.status).toBe("pass");
       expect(result.state.phaseResults["analyze-docker"]!.status).toBe("pass");
-      expect(spawned.length).toBe(1); // exactly one container, for the docker task only
+      expect(stub.sessionCreateCount()).toBe(2); // one session per agent task
     } finally {
-      localStub.close();
-      for (const c of spawned) c.stub.close();
-      await localManager.stop();
+      stub.close();
     }
   });
 
