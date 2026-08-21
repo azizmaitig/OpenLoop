@@ -237,11 +237,11 @@ export class TranscriptCollector {
     const detailLines: string[] = [];
     for (const entry of this.entries) {
       if (entry.kind === 'tool') {
-        const input = stringify(entry.input);
+        const input = truncate(stringify(entry.input), TOOL_INPUT_CAP);
         if (entry.state === 'failed') {
-          detailLines.push(`tool:${entry.tool} ${entry.callID} input=${input} → FAILED: ${partErrorToString(entry.error)}`);
+          detailLines.push(`tool:${entry.tool} ${entry.callID} input=${input} → FAILED: ${truncate(partErrorToString(entry.error), TOOL_RESULT_CAP)}`);
         } else if (entry.state === 'success') {
-          detailLines.push(`tool:${entry.tool} ${entry.callID} input=${input} → ok: ${stringify(entry.result)}`);
+          detailLines.push(`tool:${entry.tool} ${entry.callID} input=${input} → ok: ${truncate(stringify(entry.result), TOOL_RESULT_CAP)}`);
         } else {
           detailLines.push(`tool:${entry.tool} ${entry.callID} input=${input} → running`);
         }
@@ -284,6 +284,19 @@ export function reconstructTranscript(messages: TranscriptMessage[]): Transcript
 
 function slugify(text: string): string {
   return text.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+/**
+ * Per-entry caps so one giant tool result (e.g. a recursive ls over hundreds
+ * of files) cannot monopolize the bounded-transcript budget and push the
+ * structural `tool:`/`patch:` markers out of the tail window.
+ */
+const TOOL_INPUT_CAP = 200;
+const TOOL_RESULT_CAP = 600;
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…(+${text.length - max} chars)`;
 }
 
 /**

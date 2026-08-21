@@ -105,6 +105,13 @@ export interface OpenCodeServerConfig {
   transcriptTailChars?: number;
   /** Optional PermissionRuleset additions, appended after the built-in denies (last rule wins). */
   permissionOverrides?: PermissionRule[];
+  /**
+   * First-event budget (ms) on the session event stream. If the stream
+   * delivers nothing within this window, the executor treats it as silent
+   * (opencode 1.18.19 per-session SSE defect) and falls back to message
+   * polling (ADR-0024 D3b). Default 10000.
+   */
+  streamSilentTimeoutMs?: number;
 }
 
 export interface AgentServerConfig {

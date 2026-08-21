@@ -248,6 +248,31 @@ describe("executeAgentPhase", () => {
     }
   });
 
+  test("silent SSE stream → falls back to message polling and still passes (D3b, 1.18.19 defect)", async () => {
+    // The per-session event stream delivers nothing (hold-open, no events) —
+    // the exact opencode 1.18.19 defect reproduced against the live server.
+    // The messages endpoint, however, has the finished assistant reply.
+    const stub = startOpenCodeStub({
+      messages: [
+        { info: { role: "user" }, parts: [{ type: "text", text: "do the thing" }] },
+        { info: { role: "assistant", finish: "stop" }, parts: [{ type: "text", text: "DONE" }] },
+      ],
+    });
+    try {
+      const result = await executeAgentPhase(
+        makeConfig(stub.url, { opencodeServer: { url: stub.url, idleTimeoutMs: 50, streamSilentTimeoutMs: 100 } }),
+        agentPhase(),
+        5000,
+      );
+      expect(result.status).toBe("pass");
+      expect(result.stdout).toContain("DONE");
+      expect(stub.messageListCount()).toBeGreaterThan(0); // fallback path used
+      expect(stub.abortCount()).toBe(0);
+    } finally {
+      stub.close();
+    }
+  });
+
   test("server down → error result with a clear diagnostic (no hung phase)", async () => {
     const stub = startOpenCodeStub({ unhealthy: true });
     try {

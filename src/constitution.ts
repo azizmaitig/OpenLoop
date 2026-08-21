@@ -47,10 +47,25 @@ const DANGEROUS_BASH_PATTERNS = [
   'dd of=*',
 ];
 
+/**
+ * Secret-file tokens matched as FILE-NAME SUFFIXES, not arbitrary substrings:
+ * `.key` must be followed by a path/name separator (end, `/`, `\`, whitespace,
+ * quote, bracket, comma, semicolon). A file body legitimately containing
+ * `# .keyboard-hints` (calendar-app DESIGN.md) must NOT trip `.key` — the dot
+ * is the filename separator, so `.keyboard` is not a key file. `tls.key`
+ * IS one. Directory tokens below (`.env`, `auth/`, …) stay substring-matched.
+ */
+const SECRET_FILE_SUFFIX_TOKENS = ['.pem', '.key'];
+
 function findDenylistedToken(value: string): string | null {
   const lower = value.toLowerCase();
   for (const token of DENYLISTED_PATH_TOKENS) {
-    if (lower.includes(token)) {
+    if (SECRET_FILE_SUFFIX_TOKENS.includes(token)) {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`${escaped}(?:$|[\\s/\\\\"'\\[\\]\\{\\},;])`).test(lower)) {
+        return token;
+      }
+    } else if (lower.includes(token)) {
       return token;
     }
   }

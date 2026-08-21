@@ -437,6 +437,41 @@ describe("auditTranscriptEntries", () => {
     ];
     expect(auditTranscriptEntries(entries)).toEqual([]);
   });
+
+  test("does NOT flag a file whose CONTENT contains a key-file substring (.keyboard-hints)", () => {
+    // A legitimate read of DESIGN.md returns the file body, which may
+    // legitimately contain `# .keyboard-hints` — `.key` as a substring of a
+    // word, not a key-file path. Secret-file tokens (`.key`, `.pem`) match
+    // path segments, not arbitrary file contents.
+    const entries: TranscriptEntry[] = [
+      {
+        kind: "tool",
+        ts: 1,
+        callID: "call_read",
+        tool: "read",
+        state: "success",
+        input: { filePath: "DESIGN.md" },
+        result: "Keyboard hints         # .keyboard-hints",
+      },
+    ];
+    expect(auditTranscriptEntries(entries)).toEqual([]);
+  });
+
+  test("still flags a tool result that IS a key-file path", () => {
+    const entries: TranscriptEntry[] = [
+      {
+        kind: "tool",
+        ts: 1,
+        callID: "call_ls",
+        tool: "bash",
+        state: "success",
+        input: { cmd: "ls" },
+        result: "tls.key\nREADME.md",
+      },
+    ];
+    const v = auditTranscriptEntries(entries);
+    expect(v.some((x) => x.rule === "audit-denylisted-path" && x.detail.includes(".key"))).toBe(true);
+  });
 });
 
 // ── T5 #40: shared heal audit (D6.5) ─────────────────────────────────────────
